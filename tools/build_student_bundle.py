@@ -18,6 +18,15 @@ Teacher's tool: run from the repository root with the assets in place:
 
     python tools/build_student_bundle.py                 # -> dist/MosaicAgent-DD-student-complete.zip
     python tools/build_student_bundle.py --check dist/MosaicAgent-DD-student-complete.zip
+
+Owner decision 2026-10-05: the group's students run the stitching with Kimi, as in the
+original pipeline, so an internal variant can carry the group's ``.env``:
+
+    python tools/build_student_bundle.py --with-env /path/to/5_AI_SYSTEM/.env
+        # -> dist/MosaicAgent-DD-student-complete-with-kimi.zip  (credentials_included: true)
+
+That archive is for the group only: never attach it to a GitHub release or send it outside.
+The public bundle stays key-free; ``.env`` remains gitignored.
 """
 from __future__ import annotations
 
@@ -34,6 +43,7 @@ import zipfile
 
 REPO = Path(__file__).resolve().parents[1]
 BUNDLE_NAME = "MosaicAgent-DD-student-complete.zip"
+INTERNAL_BUNDLE_NAME = "MosaicAgent-DD-student-complete-with-kimi.zip"   # carries .env; internal distribution only
 TOP_LEVEL = "MosaicAgent-DD"
 MANIFEST_NAME = "bundle_manifest.json"
 ASSET_MANIFEST = "data/demo/assets.json"
@@ -46,6 +56,13 @@ EXCLUDED_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", "outpu
                  "cache", "kimi_cache", "_kimi_cache", "node_modules", "workbench_history", "history", "scan_runs",
                  "drivers", "camera_history", "colour_calibration", "shared_history"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".orig", ".rej", ".DS_Store"}
+
+
+def is_secret_file(name: str) -> bool:
+    """Credential files are never packed by enumeration; only --with-env adds one deliberately."""
+    if name == ".env.example":
+        return False
+    return name == ".env" or name.endswith(".env") or name.startswith(".env.") or name.endswith(".local.json")
 STORED_SUFFIXES = {".zip", ".pth", ".pt", ".png", ".jpg", ".jpeg", ".pdf"}
 SCHEMA_VERSION = 1
 
@@ -105,7 +122,7 @@ def select_files(repo: Path) -> tuple[list[str], str]:
             continue
         if any(part in EXCLUDED_DIRS for part in parts[:-1]):
             continue
-        if PurePosixPath(relative).suffix in EXCLUDED_SUFFIXES:
+        if PurePosixPath(relative).suffix in EXCLUDED_SUFFIXES or is_secret_file(parts[-1]):
             continue
         if not (repo / relative).is_file():
             continue
@@ -135,7 +152,7 @@ def verify_assets(repo: Path) -> dict:
     return report
 
 
-def build_manifest(repo: Path, files: list[str], source: str, assets: dict) -> dict:
+def build_manifest(repo: Path, files: list[str], source: str, assets: dict, with_env: Path | None = None) -> dict:
     head = (git(repo, "rev-parse", "HEAD") or "").strip() or None
     branch = (git(repo, "rev-parse", "--abbrev-ref", "HEAD") or "").strip() or None
     status = git(repo, "status", "--porcelain")
@@ -153,10 +170,17 @@ def build_manifest(repo: Path, files: list[str], source: str, assets: dict) -> d
             size = path.stat().st_size
             total += size
             records.append({"path": alias, "source": source, "sha256": sha256_file(path), "bytes": size})
+    if with_env is not None:
+        size = with_env.stat().st_size
+        total += size
+        records.append({"path": ".env", "source": str(with_env), "sha256": sha256_file(with_env), "bytes": size,
+                        "credentials": True})
     return {
         "schema_version": SCHEMA_VERSION,
         "kind": "student_bundle_manifest",
-        "bundle_name": BUNDLE_NAME,
+        "bundle_name": INTERNAL_BUNDLE_NAME if with_env is not None else BUNDLE_NAME,
+        "credentials_included": with_env is not None,
+        "distribution": "internal_group_only" if with_env is not None else "public_release",
         "top_level_folder": TOP_LEVEL,
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_commit": head, "source_branch": branch, "working_tree_dirty": dirty,
@@ -169,6 +193,10 @@ def build_manifest(repo: Path, files: list[str], source: str, assets: dict) -> d
         "notes": [
             "Everything tracked by Git plus the verified trusted assets; outputs, environments and caches are not packed.",
             "Records with a 'source' field are top-level copies of tracked files (the student manual PDF).",
+        ] + ([
+            "INTERNAL: this archive contains the group's Kimi credentials (.env) so that the stitching runs with Kimi "
+            "as in the original pipeline. Never attach it to a GitHub release or send it outside the group.",
+        ] if with_env is not None else []) + [
             "Extract the whole folder; run 01_install, then 02_run_layer_demo, then 03_open_workbench (see 00_STUDENT_GUIDE_zh.pdf).",
             "Scanner runtime files inside acquisition/Auto_Scan are unchanged and hash-checked by delivery_manifest.json.",
         ],
@@ -184,12 +212,14 @@ def write_bundle(repo: Path, out_path: Path, manifest: dict) -> None:
     with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for record in manifest["files"]:
             relative = record["path"]
-            source = record.get("source", relative)
+            source = Path(record.get("source", relative))
+            if not source.is_absolute():
+                source = repo / source
             info = zipfile.ZipInfo(f"{TOP_LEVEL}/{relative}", date_time=stamp)
             info.compress_type = zipfile.ZIP_STORED if PurePosixPath(relative).suffix in STORED_SUFFIXES else zipfile.ZIP_DEFLATED
             mode = 0o100755 if relative.endswith((".command", ".sh")) else 0o100644
             info.external_attr = mode << 16
-            with (repo / source).open("rb") as stream, archive.open(info, "w") as target:
+            with source.open("rb") as stream, archive.open(info, "w") as target:
                 for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
                     target.write(chunk)
         info = zipfile.ZipInfo(f"{TOP_LEVEL}/{MANIFEST_NAME}", date_time=stamp)
@@ -239,12 +269,30 @@ def check_bundle(zip_path: Path) -> dict:
             raise BundleError(f"{zip_path.name} failed verification: " + "; ".join(problems))
     return {"bundle": str(zip_path), "bytes": zip_path.stat().st_size, "sha256": sha256_file(zip_path),
             "file_count": manifest["file_count"], "source_commit": manifest.get("source_commit"),
-            "built_at_utc": manifest.get("built_at_utc")}
+            "built_at_utc": manifest.get("built_at_utc"),
+            "credentials_included": bool(manifest.get("credentials_included"))}
 
 
-def build(repo: Path = REPO, out_dir: Path | None = None) -> dict:
+def verify_env_file(path: Path) -> Path:
+    """The .env must exist and define a non-empty KIMI_API_KEY; the value is never printed."""
+    path = Path(path).expanduser().resolve()
+    if not path.is_file():
+        raise BundleError(f"--with-env file not found: {path}")
+    keys = {}
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            keys[key.strip()] = value.strip().strip('"').strip("'")
+    if not keys.get("KIMI_API_KEY"):
+        raise BundleError(f"--with-env file has no KIMI_API_KEY: {path}")
+    return path
+
+
+def build(repo: Path = REPO, out_dir: Path | None = None, with_env: Path | None = None) -> dict:
     repo = Path(repo).resolve()
     out_dir = Path(out_dir) if out_dir is not None else repo / "dist"
+    env_path = verify_env_file(with_env) if with_env is not None else None
     assets = verify_assets(repo)
     files, source = select_files(repo)
     for relative in (ASSET_MANIFEST, *(a["path"] for a in assets["files"])):
@@ -254,12 +302,15 @@ def build(repo: Path = REPO, out_dir: Path | None = None) -> dict:
     missing = [l for l in REQUIRED_LAUNCHERS if l not in files]
     if missing:
         raise BundleError("Launchers missing from the checkout: " + ", ".join(missing))
-    manifest = build_manifest(repo, files, source, assets)
-    out_path = out_dir / BUNDLE_NAME
+    manifest = build_manifest(repo, files, source, assets, env_path)
+    name = manifest["bundle_name"]
+    out_path = out_dir / name
     write_bundle(repo, out_path, manifest)
     result = check_bundle(out_path)
-    (out_dir / (BUNDLE_NAME + ".sha256")).write_text(f"{result['sha256']}  {BUNDLE_NAME}\n", encoding="utf-8")
-    (out_dir / MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (out_dir / (name + ".sha256")).write_text(f"{result['sha256']}  {name}\n", encoding="utf-8")
+    (out_dir / name.replace(".zip", ".manifest.json")).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                                                                    encoding="utf-8")
+    result["credentials_included"] = manifest["credentials_included"]
     return result
 
 
@@ -268,16 +319,23 @@ def main(argv=None) -> int:
     parser.add_argument("--repo", type=Path, default=REPO)
     parser.add_argument("--out-dir", type=Path, default=None, help="default: <repo>/dist")
     parser.add_argument("--check", type=Path, default=None, metavar="ZIP", help="verify an existing bundle instead of building")
+    parser.add_argument("--with-env", type=Path, default=None, metavar="ENV_FILE",
+                        help="also pack this .env (Kimi credentials) as MosaicAgent-DD/.env into the INTERNAL "
+                             "variant MosaicAgent-DD-student-complete-with-kimi.zip; never publish that archive")
     args = parser.parse_args(argv)
     try:
         if args.check is not None:
             result = check_bundle(args.check)
             print(f"OK  {result['bundle']}  {result['bytes']:,} bytes  sha256 {result['sha256']}  "
-                  f"{result['file_count']} files  commit {result['source_commit']}")
+                  f"{result['file_count']} files  commit {result['source_commit']}"
+                  + ("  [INTERNAL: credentials included]" if result["credentials_included"] else ""))
             return 0
-        result = build(args.repo, args.out_dir)
+        result = build(args.repo, args.out_dir, args.with_env)
         print(f"Built {result['bundle']}  {result['bytes']:,} bytes  sha256 {result['sha256']}  "
               f"{result['file_count']} files  commit {result['source_commit']}")
+        if result["credentials_included"]:
+            print("INTERNAL ARCHIVE: contains .env with Kimi credentials. Share only inside the group; "
+                  "do not attach to a GitHub release.")
         return 0
     except BundleError as exc:
         print(f"Bundle not built: {exc}", file=sys.stderr)

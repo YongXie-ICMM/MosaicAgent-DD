@@ -17,7 +17,7 @@
 
 Windows 使用 `.bat`；macOS 使用 `.command`。每次预测放在新的 `outputs/demo/` 子文件夹，原图、权重和上次结果不覆盖。完整包使用相对位置；电脑用户名改变不需要手动重写路径。实际显微镜采集仍在 Windows 仪器电脑上运行。
 
-**完整包必须包含：** `data/demo/source_images.zip`、`data/demo/assets.json`、`weights/model_0409_all.pth`。如果看到“缺少资源”，说明拿到的是仅含代码的 GitHub 包；请使用老师提供的完整学生包，不要随意下载名字相近的权重。下载代码不等于已经拿到实验数据。
+**完整包必须包含：** `data/demo/source_images.zip`、`data/demo/assets.json`、`weights/model_0409_all.pth`。发给本组学生的是**内部版** `MosaicAgent-DD-student-complete-with-kimi.zip`，多一个老师配好的 `.env`（Kimi 密钥）：拼接时 Kimi 像原流程一样做质检投票、同格位二选一和接缝抽查；工作台"检查新扫描图片与拼接设置"检测到密钥就不再加 `--no-ai`。内部版只在组内流传，不要上传到 GitHub release；公开版 `MosaicAgent-DD-student-complete.zip` 不含密钥，拼接自动退回纯统计判据。如果看到“缺少资源”，说明拿到的是仅含代码的 GitHub 包；请使用老师提供的完整学生包，不要随意下载名字相近的权重。下载代码不等于已经拿到实验数据。
 
 **这两张当前示例的衬底为260 nm SiO₂/Si（老师2026-10-05确认；旧称276 nm），不是70 nm。采集为1920 × 1080。**
 

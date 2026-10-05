@@ -117,3 +117,42 @@ def test_real_repository_selection_excludes_outputs_and_includes_launchers():
     assert all(l in files for l in bundle.REQUIRED_LAUNCHERS)
     assert "tools/student_demo.py" in files and "acquisition/Auto_Scan/wb_calibrate.py" in files
     assert all(not f.endswith(".pyc") for f in files)
+
+
+def test_public_bundle_never_contains_an_env_file_even_if_one_lies_in_the_checkout(tmp_path):
+    repo = make_repo(tmp_path)
+    (repo / ".env").write_text("KIMI_API_KEY=secret\n", encoding="utf-8")
+    result = bundle.build(repo, tmp_path / "dist")
+    with zipfile.ZipFile(result["bundle"]) as archive:
+        assert not any(n.endswith("/.env") for n in archive.namelist())
+    assert result["credentials_included"] is False
+
+
+def test_with_env_builds_a_separately_named_internal_bundle(tmp_path):
+    repo = make_repo(tmp_path)
+    env_file = tmp_path / "lab.env"
+    env_file.write_text("KIMI_API_KEY=secret-key\nKIMI_BASE_URL=https://api.moonshot.cn/v1\n", encoding="utf-8")
+    result = bundle.build(repo, tmp_path / "dist", env_file)
+    assert Path(result["bundle"]).name == bundle.INTERNAL_BUNDLE_NAME
+    assert result["credentials_included"] is True
+    with zipfile.ZipFile(result["bundle"]) as archive:
+        assert archive.read(f"{bundle.TOP_LEVEL}/.env") == env_file.read_bytes()
+        manifest = json.loads(archive.read(f"{bundle.TOP_LEVEL}/{bundle.MANIFEST_NAME}"))
+    assert manifest["credentials_included"] and manifest["distribution"] == "internal_group_only"
+    assert any("INTERNAL" in n for n in manifest["notes"])
+    env_record = [r for r in manifest["files"] if r["path"] == ".env"][0]
+    assert env_record["credentials"] is True and "secret-key" not in json.dumps(manifest)
+    assert bundle.check_bundle(result["bundle"])["credentials_included"] is True
+    # the public bundle built from the same checkout is untouched and key-free
+    public = bundle.build(repo, tmp_path / "dist")
+    assert Path(public["bundle"]).name == bundle.BUNDLE_NAME and public["credentials_included"] is False
+
+
+def test_with_env_requires_a_real_key(tmp_path):
+    repo = make_repo(tmp_path)
+    empty = tmp_path / "empty.env"
+    empty.write_text("KIMI_API_KEY=\n", encoding="utf-8")
+    with pytest.raises(bundle.BundleError, match="no KIMI_API_KEY"):
+        bundle.build(repo, tmp_path / "dist", empty)
+    with pytest.raises(bundle.BundleError, match="not found"):
+        bundle.build(repo, tmp_path / "dist", tmp_path / "missing.env")
