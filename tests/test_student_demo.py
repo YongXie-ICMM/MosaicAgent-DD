@@ -414,3 +414,130 @@ def test_confirmed_capture_comparison_keeps_native_baseline_and_flags_both_runs(
         result = json.loads((bundle / comparison[key] / "results/run_manifest.json").read_text())
         assert result["capture_geometry_confirmation"] == capture
         assert result["comparison_only"] is True and result["review_required"] is True
+
+
+# ---------------------------------------------------------------- colour balance check
+def write_reference(bundle, mean_rgb, tolerance=0.05):
+    (bundle / "configs").mkdir(exist_ok=True)
+    (bundle / demo.REFERENCE_COLOUR).write_text(json.dumps({
+        "schema_version": 1, "kind": "reference_substrate_colour", "mean_rgb": list(mean_rgb),
+        "std_rgb": [5, 5, 5], "tolerance_fraction": tolerance}), encoding="utf-8")
+
+
+def test_colour_check_without_reference_is_recorded_and_silent(bundle, monkeypatch, capsys):
+    monkeypatch.setattr(demo, "load_stages", passing_fake_stages)
+    run = demo.run_demo(bundle)
+    result = json.loads((run / "results/run_manifest.json").read_text())
+    assert result["colour_check"]["verdict"] == "no_reference"
+    assert result["colour_check"]["reference_file"] is None
+    assert result["samples"][0]["colour_check"]["verdict"] == "no_reference"
+    assert result["samples"][0]["colour_probe"] is None
+    assert "Colour check" not in capsys.readouterr().out
+    assert result["status"] == "completed"
+
+
+def test_matching_reference_passes_and_records_gain_near_one(bundle, monkeypatch):
+    write_reference(bundle, (130, 70, 120))          # the synthetic image colour
+    monkeypatch.setattr(demo, "load_stages", passing_fake_stages)
+    run = demo.run_demo(bundle)
+    result = json.loads((run / "results/run_manifest.json").read_text())
+    assert result["colour_check"]["verdict"] == "within_tolerance"
+    assert result["colour_check"]["reference_file"] == demo.REFERENCE_COLOUR
+    row = result["samples"][0]["colour_check"]
+    assert all(abs(g - 1) < 1e-6 for g in row["gain_rgb"])
+    assert row["observed"]["median_rgb"] == [130.0, 70.0, 120.0]
+    assert result["samples"][0]["requires_human_review"] is False
+
+
+def test_different_colour_balance_warns_flags_review_and_keeps_pixels_untouched(bundle, monkeypatch, capsys):
+    write_reference(bundle, (143, 66, 120))          # R +10 %, G -6 %: plausible white-balance shift
+    seen = []
+
+    def segment(context, image):
+        seen.append(Image.open(image).getpixel((0, 0)))
+        return FakeResult(data={"mask": "mask.npy", "valid_mask": "valid.npy"})
+
+    _, stats = passing_fake_stages()
+    monkeypatch.setattr(demo, "load_stages", lambda: (segment, stats))
+    run = demo.run_demo(bundle)
+    result = json.loads((run / "results/run_manifest.json").read_text())
+    assert result["colour_check"]["verdict"] == "colour_balance_differs_from_reference"
+    assert result["review_required"] is True
+    assert result["samples"][0]["requires_human_review"] is True
+    assert result["status"] == "completed_with_review_flags"
+    assert seen == [(130, 70, 120)]                   # the default run never edits pixels
+    out = capsys.readouterr().out
+    assert "Colour check" in out and "白平衡" in out
+    assert json.loads((bundle / "outputs/demo/latest.json").read_text())["run"] == run.relative_to(bundle).as_posix()
+
+
+def test_invalid_reference_record_stops_before_model(bundle, monkeypatch):
+    (bundle / "configs").mkdir()
+    (bundle / demo.REFERENCE_COLOUR).write_text('{"schema_version": 1, "kind": "other"}', encoding="utf-8")
+    monkeypatch.setattr(demo, "load_stages", lambda: pytest.fail("must not import model code"))
+    with pytest.raises(demo.DemoError, match="reference substrate colour"):
+        demo.run_demo(bundle)
+    assert not (bundle / "outputs").exists()
+
+
+def test_colour_probe_is_diagnostic_only_and_never_becomes_latest(bundle, monkeypatch):
+    write_reference(bundle, (143, 66, 120))
+    probe_inputs = []
+
+    def segment(context, image):
+        probe_inputs.append(Image.open(image).getpixel((0, 0)))
+        return FakeResult(data={"mask": "mask.npy", "valid_mask": "valid.npy"})
+
+    _, stats = passing_fake_stages()
+    monkeypatch.setattr(demo, "load_stages", lambda: (segment, stats))
+    baseline = demo.run_demo(bundle)
+    latest_before = (bundle / "outputs/demo/latest.json").read_text()
+    archive_before = demo.digest(bundle / "data/demo/source_images.zip")
+
+    path = demo.colour_probe(bundle, probe_inference=True)
+    record = json.loads(path.read_text())
+    assert record["status"] == "diagnostic_only_requires_review"
+    assert record["selected_for_measurement"] is False
+    assert record["summary"]["verdict"] == "colour_balance_differs_from_reference"
+    probe_run = bundle / record["probe_run"]
+    assert probe_run != baseline
+    manifest = json.loads((probe_run / "results/run_manifest.json").read_text())
+    assert manifest["kind"] == "diagnostic_colour_probe"
+    assert manifest["selected_for_measurement"] is False
+    assert manifest["review_required"] is True
+    gain = manifest["colour_probe"]["gain_rgb_by_sample"]["camera_01"]
+    assert [round(g, 3) for g in gain] == [1.1, 0.943, 1.0]
+    assert manifest["samples"][0]["colour_probe"]["gain_rgb"] == gain
+    # The probe fed a gain-corrected temporary copy to the model...
+    assert probe_inputs[-1] == (143, 66, 120)
+    # ...while the baseline run saw the original pixels, the archive is unchanged and
+    # latest.json still points at the baseline run.
+    assert probe_inputs[0] == (130, 70, 120)
+    assert demo.digest(bundle / "data/demo/source_images.zip") == archive_before
+    assert (bundle / "outputs/demo/latest.json").read_text() == latest_before
+
+
+def test_colour_probe_without_inference_only_measures(bundle, monkeypatch):
+    write_reference(bundle, (130, 70, 120))
+    monkeypatch.setattr(demo, "load_stages", lambda: pytest.fail("must not import model code"))
+    record = json.loads(demo.colour_probe(bundle).read_text())
+    assert record["probe_run"] is None
+    assert record["summary"]["verdict"] == "within_tolerance"
+    assert not (bundle / "outputs/demo/latest.json").exists()
+
+
+def test_colour_probe_refuses_implausible_gain_inference(bundle, monkeypatch):
+    write_reference(bundle, (219, 171, 170))         # far from the synthetic image colour
+    monkeypatch.setattr(demo, "load_stages", lambda: pytest.fail("must not import model code"))
+    with pytest.raises(demo.DemoError, match="plausible gain"):
+        demo.colour_probe(bundle, probe_inference=True)
+
+
+def test_colour_probe_cli_routes_without_running_the_default_demo(bundle, monkeypatch):
+    calls = []
+    monkeypatch.setattr(demo, "colour_probe", lambda probe_inference=False: calls.append(probe_inference))
+    monkeypatch.setattr(demo, "run_demo", lambda *a, **k: pytest.fail("CLI must enter the probe function"))
+    monkeypatch.setattr(demo, "open_workbench", lambda *args, **kwargs: pytest.fail("must not open hardware or UI"))
+    assert demo.main(["colour-probe"]) == 0
+    assert demo.main(["color-probe", "--probe-inference"]) == 0
+    assert calls == [False, True]

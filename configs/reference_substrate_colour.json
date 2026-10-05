@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "reference_substrate_colour",
+  "description": "Bare-substrate colour (8-bit sRGB as decoded from the camera PNG) of the acquisition mode on which model_0409_all.pth was previously run and visually reviewed: 3840x2160 frames of the 2026-09-24 inference examples. Derived from pixels that the same checkpoint predicted as bare substrate. It is a reference for the camera colour balance of that capture mode; it is not an independent reflectance calibration and not a label.",
+  "mean_rgb": [219.2, 170.9, 170.0],
+  "std_rgb": [9.5, 8.3, 8.1],
+  "pixel_scale_note": "Colour balance is independent of the 3840x2160 -> 1920x1080 pixel-count change; see docs/RESOLUTION_AND_INFERENCE.md.",
+  "tolerance_fraction": 0.05,
+  "source_frames": [
+    {"frame": "L18_down/0028.png", "member_sha256": "6ac75ed4f230157de7a10b99b62b776603bb108eb915290ca33504fab8a1075a", "size_wh": [3840, 2160], "pixels_sampled": 300000},
+    {"frame": "L34_down/0028.png", "member_sha256": "767e40e349a3259b8522c87d8328493245411a98f79c28cbf76da2172bf4aa0c", "size_wh": [3840, 2160], "pixels_sampled": 300000}
+  ],
+  "source_prediction_run": "06_analysis/runs/20260924_0409_inference_examples (laboratory project, not in this repository)",
+  "checkpoint_sha256": "b771fc9cfaa8fdc1eba9d680d7c3b678890a903ddf12f2073b5a8c957b64a022",
+  "substrate": "SiO2/Si; historically labelled 276 nm, confirmed 260 nm on 2026-10-05",
+  "derived_on": "2026-10-05",
+  "limits": [
+    "Derived from model predictions on two frames of one microscope/camera lineage; not a physical reflectance standard.",
+    "A gain estimated from it is a diagnostic probe: the corrected prediction stays unvalidated until independent reference regions are reviewed.",
+    "Re-derive when the objective, illumination source, camera or oxide thickness changes; do not reuse across laboratories."
+  ]
+}
