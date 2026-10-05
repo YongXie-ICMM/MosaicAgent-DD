@@ -25,6 +25,7 @@ def make_repo(tmp_path: Path, *, break_weights=False) -> Path:
     (repo / "tools" / "student_demo.py").write_text("print('demo')\n", encoding="utf-8")
     (repo / "docs").mkdir()
     (repo / "docs" / "STUDENT_GUIDE_zh.md").write_text("# guide\n", encoding="utf-8")
+    (repo / "docs" / "STUDENT_GUIDE_zh.pdf").write_bytes(b"%PDF-1.4 fake manual\n")
     (repo / "outputs" / "demo").mkdir(parents=True)
     (repo / "outputs" / "demo" / "latest.json").write_text("{}", encoding="utf-8")       # must not be packed
     (repo / "tools" / "__pycache__").mkdir()
@@ -56,6 +57,8 @@ def test_build_packs_sources_and_verified_assets_and_checks_itself(tmp_path):
         assert f"{bundle.TOP_LEVEL}/data/demo/source_images.zip" in names
         assert f"{bundle.TOP_LEVEL}/data/demo/assets.json" in names
         assert f"{bundle.TOP_LEVEL}/docs/STUDENT_GUIDE_zh.md" in names
+        assert f"{bundle.TOP_LEVEL}/00_STUDENT_GUIDE_zh.pdf" in names, "manual PDF is surfaced at the top level"
+        assert archive.read(f"{bundle.TOP_LEVEL}/00_STUDENT_GUIDE_zh.pdf") == archive.read(f"{bundle.TOP_LEVEL}/docs/STUDENT_GUIDE_zh.pdf")
         assert f"{bundle.TOP_LEVEL}/01_install.command" in names
         assert not any("outputs/" in n or "__pycache__" in n or ".github" in n for n in names)
         command = archive.getinfo(f"{bundle.TOP_LEVEL}/01_install.command")
@@ -64,6 +67,9 @@ def test_build_packs_sources_and_verified_assets_and_checks_itself(tmp_path):
     assert manifest["kind"] == "student_bundle_manifest"
     assert manifest["file_count"] == len(manifest["files"]) == len(names) - 1
     assert all(len(r["sha256"]) == 64 for r in manifest["files"])
+    copies = [r for r in manifest["files"] if r.get("source")]
+    assert copies == [{"path": "00_STUDENT_GUIDE_zh.pdf", "source": "docs/STUDENT_GUIDE_zh.pdf",
+                       "sha256": sha(b"%PDF-1.4 fake manual\n"), "bytes": len(b"%PDF-1.4 fake manual\n")}]
     assert {a["path"] for a in manifest["assets"]["files"]} == {"data/demo/source_images.zip", "weights/model_0409_all.pth"}
     assert (tmp_path / "dist" / (bundle.BUNDLE_NAME + ".sha256")).read_text().split()[0] == result["sha256"]
     assert bundle.check_bundle(zip_path)["file_count"] == manifest["file_count"]

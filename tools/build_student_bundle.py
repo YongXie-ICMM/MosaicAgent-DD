@@ -39,12 +39,14 @@ MANIFEST_NAME = "bundle_manifest.json"
 ASSET_MANIFEST = "data/demo/assets.json"
 REQUIRED_LAUNCHERS = ("01_install.bat", "01_install.command", "02_run_layer_demo.bat", "02_run_layer_demo.command",
                       "03_open_workbench.bat", "03_open_workbench.command")
+# Tracked files also surfaced at the top level of the archive so students see them first.
+TOP_LEVEL_COPIES = {"00_STUDENT_GUIDE_zh.pdf": "docs/STUDENT_GUIDE_zh.pdf"}
 EXCLUDED_TOP_LEVEL = {".github", ".gitattributes"}
 EXCLUDED_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", "outputs", "dist", "_work", "_stitch_work",
                  "cache", "kimi_cache", "_kimi_cache", "node_modules", "workbench_history", "history", "scan_runs",
                  "drivers", "camera_history", "colour_calibration", "shared_history"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".orig", ".rej", ".DS_Store"}
-STORED_SUFFIXES = {".zip", ".pth", ".pt", ".png", ".jpg", ".jpeg"}
+STORED_SUFFIXES = {".zip", ".pth", ".pt", ".png", ".jpg", ".jpeg", ".pdf"}
 SCHEMA_VERSION = 1
 
 
@@ -145,6 +147,12 @@ def build_manifest(repo: Path, files: list[str], source: str, assets: dict) -> d
         size = path.stat().st_size
         total += size
         records.append({"path": relative, "sha256": sha256_file(path), "bytes": size})
+    for alias, source in sorted(TOP_LEVEL_COPIES.items()):
+        if source in files and alias not in files:
+            path = repo / source
+            size = path.stat().st_size
+            total += size
+            records.append({"path": alias, "source": source, "sha256": sha256_file(path), "bytes": size})
     return {
         "schema_version": SCHEMA_VERSION,
         "kind": "student_bundle_manifest",
@@ -160,7 +168,8 @@ def build_manifest(repo: Path, files: list[str], source: str, assets: dict) -> d
         "files": records,
         "notes": [
             "Everything tracked by Git plus the verified trusted assets; outputs, environments and caches are not packed.",
-            "Extract the whole folder; run 01_install, then 02_run_layer_demo, then 03_open_workbench (see docs/STUDENT_GUIDE_zh.md).",
+            "Records with a 'source' field are top-level copies of tracked files (the student manual PDF).",
+            "Extract the whole folder; run 01_install, then 02_run_layer_demo, then 03_open_workbench (see 00_STUDENT_GUIDE_zh.pdf).",
             "Scanner runtime files inside acquisition/Auto_Scan are unchanged and hash-checked by delivery_manifest.json.",
         ],
     }
@@ -175,11 +184,12 @@ def write_bundle(repo: Path, out_path: Path, manifest: dict) -> None:
     with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for record in manifest["files"]:
             relative = record["path"]
+            source = record.get("source", relative)
             info = zipfile.ZipInfo(f"{TOP_LEVEL}/{relative}", date_time=stamp)
             info.compress_type = zipfile.ZIP_STORED if PurePosixPath(relative).suffix in STORED_SUFFIXES else zipfile.ZIP_DEFLATED
             mode = 0o100755 if relative.endswith((".command", ".sh")) else 0o100644
             info.external_attr = mode << 16
-            with (repo / relative).open("rb") as stream, archive.open(info, "w") as target:
+            with (repo / source).open("rb") as stream, archive.open(info, "w") as target:
                 for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
                     target.write(chunk)
         info = zipfile.ZipInfo(f"{TOP_LEVEL}/{MANIFEST_NAME}", date_time=stamp)
