@@ -12,9 +12,10 @@ MosaicAgent-DD/
   01_install.bat / .command
   02_run_layer_demo.bat / .command
   03_open_workbench.bat / .command
+  00_STUDENT_GUIDE_zh.pdf              step-by-step student manual (copy of docs/STUDENT_GUIDE_zh.pdf)
   bundle_manifest.json                 every packed file with its SHA-256, source commit, build time
   acquisition/Auto_Scan/               unchanged scanner runtime + 00_white_balance_then_scan.bat, wb_calibrate.py
-  docs/STUDENT_GUIDE_zh.md             step-by-step student manual
+  docs/STUDENT_GUIDE_zh.md / .pdf      the manual's Markdown source and its PDF (tools/build_student_guide_pdf.py)
   (all other tracked sources: code, configs, docs, tests)
 ```
 

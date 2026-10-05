@@ -6,7 +6,7 @@
 
 **[下载完整学生试跑包](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/latest)**：选 `MosaicAgent-DD-student-complete.zip`，包含程序、两张当前1920 × 1080原图、真实权重和启动文件。GitHub自动生成的Source code ZIP不包含原图压缩包和权重。
 
-**一步一步的学生说明书：[docs/STUDENT_GUIDE_zh.md](docs/STUDENT_GUIDE_zh.md)**（分析电脑三个启动文件；仪器电脑扫描日从 `acquisition/Auto_Scan/00_white_balance_then_scan.bat` 进入：先在干净裸衬底上把白平衡校正到参考值并记录，再调用原来的扫描程序）。
+**一步一步的学生说明书（PDF）：学生包最外层的 `00_STUDENT_GUIDE_zh.pdf`**，源文件是 [docs/STUDENT_GUIDE_zh.md](docs/STUDENT_GUIDE_zh.md)（分析电脑三个启动文件；仪器电脑扫描日从 `acquisition/Auto_Scan/00_white_balance_then_scan.bat` 进入：先在干净裸衬底上把白平衡校正到参考值并记录，再调用原来的扫描程序）。
 
 ## 拿到完整试跑包之后
 
