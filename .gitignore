@@ -1,0 +1,33 @@
+# Credentials and local machine configuration
+.env
+*.env
+!.env.example
+*.local.json
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+# Laboratory inputs, weights, and generated products are distributed separately.
+/data/
+/weights/
+/outputs/
+*.pth
+*.pt
+*.zip
+*.npy
+_stitch_work/
+_work/
+cache/
+kimi_cache/
+**/_kimi_cache/
+*.orig
+*.rej
+/tools/analysis_workbench/workbench_history/
+/acquisition/Auto_Scan/history/
+/acquisition/Auto_Scan/scan_runs/
+/acquisition/Auto_Scan/drivers/
+*.dll
+*.dylib
+*.so

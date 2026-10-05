@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MosaicAgent · 分析工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="MosaicAgent"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>MosaicAgent<small data-i18n="workbench">分析工作台</small></span></a>
+    <div class="header-actions"><span class="connection" id="connection"><span></span><span data-i18n="connecting">正在连接</span></span><button class="quiet" id="languageButton" type="button">English</button><button class="button secondary small" id="setupButton" type="button" data-i18n="setup">设置</button></div>
+  </header>
+
+  <main>
+    <section class="welcome" aria-labelledby="pageTitle"><div><p class="eyebrow" data-i18n="eyebrow">从采集到复核</p><h1 id="pageTitle" data-i18n="headline">让每一步分析，都有据可查。</h1><p class="subtitle" data-i18n="subtitle">选择数据，查看原图与结果，再决定下一步。</p></div><div class="run-badge"><span data-i18n="currentRun">当前项目</span><strong id="runLabel" data-i18n="noRun">尚未选择数据</strong></div></section>
+
+    <nav class="workflow" aria-label="分析步骤" id="workflow">
+      <button class="workflow-card active" data-stage="scan" type="button" aria-pressed="true"><span class="card-top"><span class="step-number">01</span><span class="stage-state" id="scanState" data-i18n="ready">可进入</span></span><strong data-i18n="scanTitle">显微扫描</strong><span class="card-description" data-i18n="scanDescription">打开现有 AmScope 采集工具</span><span class="card-arrow" aria-hidden="true">↗</span></button>
+      <button class="workflow-card" data-stage="images" type="button" aria-pressed="false"><span class="card-top"><span class="step-number">02</span><span class="stage-state" id="imagesState" data-i18n="selectData">选择数据</span></span><strong data-i18n="imagesTitle">图像与拼接</strong><span class="card-description" data-i18n="imagesDescription">查看原图，检查拼接结果</span><span class="card-arrow" aria-hidden="true">↗</span></button>
+      <button class="workflow-card" data-stage="layers" type="button" aria-pressed="false"><span class="card-top"><span class="step-number">03</span><span class="stage-state" id="layersState" data-i18n="selectData">选择数据</span></span><strong data-i18n="layersTitle">层数分析</strong><span class="card-description" data-i18n="layersDescription">U-Net 层数预测与面积统计</span><span class="card-arrow" aria-hidden="true">↗</span></button>
+      <button class="workflow-card" data-stage="spectra" type="button" aria-pressed="false"><span class="card-top"><span class="step-number">04</span><span class="stage-state" id="spectraState" data-i18n="optional">可选</span></span><strong data-i18n="spectraTitle">光谱与位置</strong><span class="card-description" data-i18n="spectraDescription">关联测量，核对坐标与证据</span><span class="card-arrow" aria-hidden="true">↗</span></button>
+    </nav>
+
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div id="warnings" class="warning-list" role="status" hidden></div>
+    <section class="action-panel" aria-labelledby="actionTitle">
+      <div class="action-copy"><p class="eyebrow" id="actionEyebrow">01 / 采集</p><h2 id="actionTitle">打开熟悉的采集工具</h2><p id="actionDescription">在仪器电脑上完成扫描，然后回到这里导入数据。</p><p class="platform-note" id="platformNote" hidden></p></div>
+      <div class="stage-controls" id="scanControls">
+        <button class="button primary" id="launchScannerButton" type="button" data-i18n="launchScanner">打开 AmScope 扫描工具</button>
+        <div class="inline-links"><a id="scannerDocsLink" href="https://github.com/YongXie-ICMM/MosaicAgent-DD/blob/main/acquisition/Auto_Scan/STUDENT_SCAN_V3.md" target="_blank" rel="noreferrer" data-i18n="scanGuide">扫描操作说明 ↗</a><a id="scannerRepoLink" href="https://github.com/YongXie-ICMM/MosaicAgent-DD/tree/main/acquisition" target="_blank" rel="noreferrer" data-i18n="scannerRepository">AmScope 仓库 ↗</a></div>
+      </div>
+      <div class="stage-controls" id="imagesControls" hidden>
+        <button class="button primary" id="imagesButton" type="button" data-i18n="openImages">打开图像与拼接结果</button><div class="inline-links tool-links" data-links="images"></div>
+        <div class="inline-links"><a href="/stitch-setup/" data-i18n="stitchSetup">检查新扫描图片与拼接参数 →</a></div>
+      </div>
+      <div class="stage-controls" id="layersControls" hidden><button class="button primary" id="layersButton" type="button" data-i18n="reviewLayers">查看层数结果</button><div class="inline-links tool-links" data-links="layers"></div><p class="control-help" data-i18n="layersHelp">对照原图核对层数预测，再检查统计区域、有效像素与分母。</p></div>
+      <div class="stage-controls" id="spectraControls" hidden><button class="button primary" id="spectraButton" type="button" data-i18n="openSpectra">打开光谱与位置记录</button><div class="inline-links tool-links" data-links="spectra"></div></div>
+    </section>
+
+    <div class="workspace-grid">
+      <section class="preview-section" aria-labelledby="previewTitle"><div class="section-heading"><div><h2 id="previewTitle" data-i18n="previewTitle">先看图，再判断</h2><p id="previewSubtitle" data-i18n="previewSubtitle">原图和分析结果并列显示。</p></div><div class="preview-controls"><label id="caseControl" class="case-control" hidden><span data-i18n="caseLabel">图像</span><select id="caseSelect" aria-label="图像案例"></select></label><label class="toggle-label" id="overlayControl" hidden><input type="checkbox" id="overlayToggle"><span data-i18n="showOverlay">显示叠加</span></label></div></div>
+        <div class="preview-grid" id="previewGrid"><figure class="preview-pane"><figcaption><span><i class="legend-dot original"></i><span data-i18n="original">原始图像</span></span><a id="originalOpen" target="_blank" rel="noreferrer" hidden data-i18n="openImage">打开大图 ↗</a></figcaption><div class="image-stage"><img id="originalImage" alt="原始图像" hidden><div class="image-empty" id="originalEmpty"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="9" y="12" width="46" height="40" rx="5"/><circle cx="24" cy="25" r="4"/><path d="m10 44 14-13 10 9 8-7 12 11"/></svg><strong data-i18n="originalEmpty">当前步骤暂无原图</strong><span data-i18n="originalEmptyHelp">选择图像案例，或在设置中连接数据</span></div></div><div class="image-meta" id="originalMeta" data-i18n="noInput">暂无对应原图</div></figure>
+          <figure class="preview-pane"><figcaption><span><i class="legend-dot prediction"></i><span id="resultTitle" data-i18n="result">分析结果</span></span><a id="resultOpen" target="_blank" rel="noreferrer" hidden data-i18n="openImage">打开大图 ↗</a></figcaption><div class="image-stage"><img id="resultImage" alt="分析结果" hidden><div class="image-empty" id="resultEmpty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="m15 47 17-30 17 30z"/><path d="m32 17 4 30M15 47l19-17 15 17"/></svg><strong data-i18n="resultEmpty">当前步骤暂无图像结果</strong><span data-i18n="resultEmptyHelp">只展示已生成的文件</span></div></div><div class="image-meta" id="resultMeta" data-i18n="noResult">暂无对应结果</div></figure></div>
+        <div id="detailsPanel" class="details-panel" hidden><h3 id="detailsTitle" data-i18n="relatedFiles">相关文件与说明</h3><div id="detailsContent"></div></div>
+      </section>
+      <aside class="review-sidebar"><section class="next-action" aria-labelledby="nextTitle"><span class="eyebrow" data-i18n="nextLabel">下一步</span><h2 id="nextTitle" data-i18n="nextDefault">建议操作</h2><p id="nextDescription" data-i18n="nextDefaultDescription">连接已有项目，即可查看图像、分析结果和复核入口。</p><button class="text-button" id="nextButton" type="button" data-i18n="goToImages">前往图像与拼接 →</button></section><section class="timeline-section" aria-labelledby="timelineTitle"><div class="section-heading compact"><h2 id="timelineTitle" data-i18n="timelineTitle">操作记录</h2><button class="quiet" id="refreshButton" type="button" data-i18n="refresh">刷新</button></div><ol id="timeline" class="timeline"><li class="timeline-empty" data-i18n="timelineEmpty">操作和结果会记录在这里。</li></ol><p class="timeline-caption" data-i18n="timelineCaption">记录实际操作、结果和需要你处理的问题。</p></section></aside>
+    </div>
+    <footer><span data-i18n="footer">MosaicAgent · 显微图像分析工作台</span><a href="https://github.com/YongXie-ICMM/MosaicAgent-DD" target="_blank" rel="noreferrer" data-i18n="projectLink">项目与说明 ↗</a></footer>
+  </main>
+
+  <dialog id="setupDialog" aria-labelledby="setupTitle"><form id="setupForm"><div class="dialog-heading"><div><p class="eyebrow" data-i18n="localTools">本机工具</p><h2 id="setupTitle" data-i18n="setupTitle">连接现有工具</h2></div><button class="icon-button" id="closeSetupButton" type="button" aria-label="关闭">×</button></div><p class="dialog-description" data-i18n="setupDescription">填写本机路径。工作台会调用已有程序，扫描参数仍在采集工具中设置。</p><div id="setupFields"></div><p id="setupStatus" class="control-help" role="status"></p><div class="dialog-footer"><button class="button secondary" id="cancelSetupButton" type="button" data-i18n="cancel">取消</button><button class="button primary" id="saveSetupButton" type="submit" data-i18n="saveSettings">保存设置</button></div></form></dialog>
+</body>
+</html>

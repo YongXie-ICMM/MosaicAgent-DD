@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "release": "954-1080p-A1",
+  "exported_on": "2026-10-05",
+  "source_project": "AmScope-Camera",
+  "source_commit": "25a839261ae033f068bdcc84507a8cb0e749f760",
+  "source_directory": "Auto_Scan",
+  "runtime_bytes_unchanged": true,
+  "expected_image_size": [
+    1920,
+    1080
+  ],
+  "raw_images_resized": false,
+  "physical_calibration_status": "unverified_for_current_mode",
+  "instrument_validation_status": "pending_for_this_release",
+  "offline_validation_status": "passed",
+  "third_party_sdk_files_included": false,
+  "raw_research_data_included": false,
+  "files": [
+    {
+      "path": "Auto_Scan/03Auto_Snake_Scan_Camera_v3.py",
+      "sha256": "784159ac2e9ba39cf312b57f37b5ca0eb6bc617f1c2dcf6d81e00687a4207495",
+      "bytes": 116304,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/Camera_v2.py",
+      "sha256": "1f4e12eab9c907781f8a917c6f4d6f8e16966714b163c8a1eb06b190d31bcd8e",
+      "bytes": 53383,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/camera_session_history.py",
+      "sha256": "6be7f391935b7abbf313ebb95bda22e34a36e169d613c817accc04036b40d81d",
+      "bytes": 20218,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/scan_review.py",
+      "sha256": "ed226508a8e374695828b8fb83715e2c4536e5c5ba981ed46a1e56872f3cf423",
+      "bytes": 3719,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/scan_preview.py",
+      "sha256": "5690fada55b874129491409e57e631bd92b05c97f3222a872814c9ac1503c571",
+      "bytes": 3841,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/shared_history.py",
+      "sha256": "8292b4f559423a69cfb62541d66ceb680d81c68017b9e8192c87d4ee2e9c17f3",
+      "bytes": 27700,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/history_viewer.py",
+      "sha256": "3361e0bd6b553591b5c25d2a725af39d8a78adf504bd44c11f0ff5621c943085",
+      "bytes": 7569,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/scan_log_resume.py",
+      "sha256": "4c998d09a499d1b53f64417b41df56bc1c98bde10cbc08ad6a44a24c4997028b",
+      "bytes": 5005,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/acquisition_contract.py",
+      "sha256": "d316fc93cb8ad656710751a923b7bee16de35ccb56f55e443ca114bb6821d1bb",
+      "bytes": 3035,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/gui_language.py",
+      "sha256": "102ebeee2a30188d14e35a37a74a30f526d71bd4ba1a1bf02054baa70e7a68e3",
+      "bytes": 10192,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/gui_language_catalog.json",
+      "sha256": "c826d67158465a232718cc48c730286d4d36830190a20beb4d126d98dd19c9e6",
+      "bytes": 23786,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/gui_theme.py",
+      "sha256": "8f0debe7164e057ab4ec3bf3cc5f6206c67eed331ba917529fb45d65ab0f4df8",
+      "bytes": 14056,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/launch_scan.py",
+      "sha256": "508234308eb3db1327a58c473746044d7e6ed414a03e218248ba5a28dfa76c97",
+      "bytes": 4678,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/01_setup.bat",
+      "sha256": "fbdb99b993ad4e1b115d9650da75dab3dfadbba3108dd9dd5fd632a804c7b633",
+      "bytes": 206,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/02_start_scan.bat",
+      "sha256": "ab38d77accc066b27bb886a38b4181354de7861c03426d2fbcd0a74aab1e527e",
+      "bytes": 156,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/requirements_scan.txt",
+      "sha256": "3dce4151fb6e825170459fb0ff5f2bd4db1a33c5f47882befa29ed25cc17c779",
+      "bytes": 20,
+      "role": "runtime"
+    },
+    {
+      "path": "Auto_Scan/test_acquisition_contract.py",
+      "sha256": "87aa97b2e2f72cf12cdbc72b26b6411ae55ea947140b7905f84253da66d08e1b",
+      "bytes": 15860,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_camera_freshness.py",
+      "sha256": "50cd601cec1ed283a4eae69062c900a6bad6d84a7ffa62cf6597fbcde6cd9d68",
+      "bytes": 7943,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_camera_session_history.py",
+      "sha256": "ebcc90feaa0d96bb5546553a7c57d931102616e5ce35004f67ea30aac8a29d8b",
+      "bytes": 4657,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_history_integration.py",
+      "sha256": "23b9eed2ecbfe6c936b7424fe88f9b2222a4316f7d5371780ed1d5c25c236201",
+      "bytes": 15925,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_history_recovery.py",
+      "sha256": "95f8f5f39af4b473b97ae02d61db8f2fc909fb1e7880069626f300418237fc18",
+      "bytes": 13975,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_integrated_preview.py",
+      "sha256": "1d88cfba51edb794b1b899e05c9774c1f71f16bb5761f882cdcc17bcdf142e13",
+      "bytes": 13155,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_launcher_history.py",
+      "sha256": "7466fba4687aac841375cf747781b93c203eb2e55ad18d9bb6becdc1fa10eafd",
+      "bytes": 5214,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_log_resume.py",
+      "sha256": "ee67b70cb8d3d96206e6c23ec13564e5a62bd8c3300954b239feb3da16f1ec43",
+      "bytes": 10231,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_log_resume_gui.py",
+      "sha256": "8bcefa3d51bb18f4be3055cb70ff018d8c1191ff0b84e564909b0610e5808861",
+      "bytes": 13304,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_scan_review.py",
+      "sha256": "a0bba8d88e9609167fa062c36e491456668c1416292061f943fbaac04549477b",
+      "bytes": 15836,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/test_scan_v3_offline.py",
+      "sha256": "de5a971b5d69721a94ba887df682be89ef0f77f02fb97c04a92ebc899d9843ba",
+      "bytes": 10167,
+      "role": "offline_test",
+      "source_sha256": "030d23d2bbdbad6ca9e32b8fd5a5bcbc463ac29c3927d5f1d806dada3980597c",
+      "export_adaptation": "Import only the required fake-stage fixture from _stage_test_fixture; numerical assertions unchanged."
+    },
+    {
+      "path": "Auto_Scan/test_shared_history.py",
+      "sha256": "ece429808d71e42e81a5703d32e9046bf0d6922140f6a2ebce273a60adc44f0a",
+      "bytes": 17674,
+      "role": "offline_test"
+    },
+    {
+      "path": "Auto_Scan/_stage_test_fixture.py",
+      "sha256": "5c49d343838ddf187de7c28563bca44e1de636e6f02dd3d474755af55b4c9cb8",
+      "bytes": 4913,
+      "role": "offline_test_helper",
+      "source_path": "Auto_Scan/test_stage_readback.py",
+      "source_sha256": "f3ec2d8acec4c87f75030fe56da4d78a89ca456eb33016855f4a038db5c1ae77",
+      "export_adaptation": "Extracted fake-DLL helpers preceding StageReadbackTests; no real SDK is loaded."
+    },
+    {
+      "path": "Auto_Scan/delivery_manifest.json",
+      "sha256": "a963ad72cfabb794b9f142d55ccbdb6e0099bb2f55dfb7fad944ec497800115f",
+      "bytes": 3024,
+      "role": "export_metadata",
+      "export_adaptation": "Public source-only runtime manifest generated from unchanged runtime source hashes."
+    }
+  ],
+  "offline_validation": {
+    "command": "python -m pytest -q acquisition/Auto_Scan",
+    "date": "2026-10-05",
+    "passed": 168,
+    "passed_subtests": 27,
+    "hardware_opened": false,
+    "external_model_calls": 0,
+    "instrument_validation": "pending"
+  },
+  "workbench_integration_validation": {
+    "command": "python -m pytest -q tools/analysis_workbench/test_bundled_scanner.py",
+    "date": "2026-10-05",
+    "passed": 3,
+    "passed_subtests": 16,
+    "hardware_opened": false,
+    "child_processes_launched": 0
+  }
+}

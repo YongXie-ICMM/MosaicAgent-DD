@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MosaicAgent · 拼接配置</title>
+  <link rel="stylesheet" href="/stitch-setup/style.css">
+  <script src="/stitch-setup/app.js" defer></script>
+</head>
+<body>
+  <a href="#main" class="skip-link" data-i18n="skip">跳到配置</a>
+  <header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>MosaicAgent<small data-i18n="setupTitle">拼接配置</small></span></a>
+    <div class="header-actions"><a href="/" data-i18n="back">返回分析工作台</a><button type="button" id="languageButton" class="button quiet">English</button></div>
+  </header>
+  <main id="main">
+    <section class="welcome" aria-labelledby="pageTitle">
+      <p class="eyebrow" data-i18n="eyebrow">RAW TILES → STITCHING PROFILE</p>
+      <h1 id="pageTitle" data-i18n="headline">先确认图块，再准备拼接。</h1>
+      <p class="subtitle" data-i18n="subtitle">按顺序检查文件夹、确认采集几何，保存一份可以复核的配置与命令。</p>
+      <p class="scope-note" data-i18n="scope">这里只检查本机文件并保存配置。保存后，在终端中运行命令才会开始拼接。</p>
+    </section>
+    <noscript><p class="notice error">此页面需要启用 JavaScript。This page requires JavaScript.</p></noscript>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+    <section class="step" aria-labelledby="inspectTitle">
+      <div class="step-heading"><span class="step-number" aria-hidden="true">01</span><div><h2 id="inspectTitle" data-i18n="inspectTitle">检查原始图块</h2><p data-i18n="inspectIntro">填写运行工作台的电脑上的文件夹路径。选择原始图块，而不是已经拼好的大图。</p></div><span class="step-state" id="inspectState"></span></div>
+      <form id="inspectForm">
+        <label for="dataDir" data-i18n="dataDir">原始图块文件夹</label>
+        <input id="dataDir" name="data_dir" type="text" required autocomplete="off" spellcheck="false" aria-describedby="dataDirHelp" placeholder="/path/to/raw_tiles">
+        <p class="help" id="dataDirHelp" data-i18n="dataDirHelp">在文件管理器中复制完整路径并粘贴到这里。此操作不会上传图像。</p>
+        <label for="layoutPath" data-i18n="layoutPath">已有布局 JSON 文件路径（可选）</label>
+        <input id="layoutPath" name="layout_path" type="text" autocomplete="off" spellcheck="false" aria-describedby="layoutHelp" placeholder="/path/to/layout.json">
+        <p class="help" id="layoutHelp" data-i18n="layoutHelp">只有已知布局文件时才填写；留空会尝试识别受支持的图块命名和列文件夹结构。</p>
+        <div class="action-row"><button id="inspectButton" class="button primary" type="submit" data-i18n="inspectButton">检查文件夹</button><span id="connectionState" class="help" aria-live="polite"></span></div>
+      </form>
+      <div id="inspectionResult" class="inspection-result" hidden>
+        <dl class="facts"><div><dt data-i18n="tileCount">图块数量</dt><dd id="tileCount"></dd></div><div><dt data-i18n="imageSize">单张像素尺寸</dt><dd id="imageSize"></dd></div><div><dt data-i18n="fileSize">单张文件大小</dt><dd id="fileSize"></dd></div><div><dt data-i18n="layoutMode">布局来源</dt><dd id="layoutMode"></dd></div></dl>
+        <p class="evidence-note" data-i18n="sizeNote">MB 受像素尺寸、编码、压缩和内容共同影响，不能单独作为分辨率或几何标定依据。像素尺寸也不能单独证明视野、物镜或位移相同。</p>
+        <div id="acquisitionRecord" class="conditional-panel" hidden>
+          <h3 data-i18n="acquisitionTitle">已找到采集记录</h3>
+          <dl class="facts"><div><dt data-i18n="acquisitionSize">采集预期 / 原图实测</dt><dd id="acquisitionSize"></dd></div><div><dt data-i18n="acquisitionGrid">采集网格 / 当前选择</dt><dd id="acquisitionGrid"></dd></div><div><dt data-i18n="acquisitionSteps">记录的平台位移</dt><dd id="acquisitionSteps"></dd></div><div><dt data-i18n="acquisitionStatus">记录状态 / 选择范围</dt><dd id="acquisitionStatus"></dd></div></dl>
+          <p class="evidence-note" data-i18n="calibrationPending">像素位移标定仍待核实。当前尺寸和位移台步数不会自动换算成旧 4K 拼接参数。</p>
+        </div>
+        <div id="inspectWarnings" class="warning-list" hidden></div>
+      </div>
+    </section>
+
+    <form id="prepareForm">
+      <section class="step" aria-labelledby="profileTitle">
+        <div class="step-heading"><span class="step-number" aria-hidden="true">02</span><div><h2 id="profileTitle" data-i18n="profileTitle">明确选择几何配置</h2><p data-i18n="profileIntro">根据采集记录选择；无法确认的参数，请先向采集者核实。</p></div><span class="step-state" id="profileState"></span></div>
+        <fieldset id="profileFields" disabled>
+          <legend class="sr-only" data-i18n="profileChoice">选择一个配置</legend>
+          <div class="profile-options">
+            <label class="profile-option"><input type="radio" name="profile_kind" value="historical" required><span><strong data-i18n="historicalTitle">历史配置 · 3840 × 2160</strong><span data-i18n="historicalHelp">仅用于原始历史采集几何：3840 × 2160 像素，沿用 Figure 3 的标定与平台步数。相同尺寸本身不足以确认适用。</span><small id="historicalAvailability"></small></span></label>
+            <label class="profile-option"><input type="radio" name="profile_kind" value="rescaled"><span><strong data-i18n="rescaledTitle">同一视野的等比例缩放</strong><span data-i18n="rescaledHelp">仅用于历史图块整体等比例缩放。像素位移随尺寸缩放，物理平台步数不变；裁剪、换物镜或改变视野不适用。</span></span></label>
+            <label class="profile-option"><input type="radio" name="profile_kind" value="custom"><span><strong data-i18n="customTitle">自定义 · 已标定的像素位移</strong><span data-i18n="customHelp">填写当前原始像素坐标下的两个相邻图块位移向量，并记录标定来源。</span></span></label>
+          </div>
+          <div id="rescaledFields" class="conditional-panel" hidden>
+            <h3 data-i18n="confirmTitle">对照采集记录，逐项确认</h3>
+            <label class="check"><input type="checkbox" id="sameOptics"><span data-i18n="sameOptics">相机与物镜等光学配置与历史采集相同。</span></label>
+            <label class="check"><input type="checkbox" id="sameFieldOfView"><span data-i18n="sameFieldOfView">物理视野相同，整幅图像只做了等比例缩放，没有裁剪。</span></label>
+            <label class="check"><input type="checkbox" id="sameStageSteps"><span data-i18n="sameStageSteps">平台实际执行的位移步数与历史采集相同。</span></label>
+          </div>
+          <div id="customFields" class="conditional-panel" hidden>
+            <h3 data-i18n="vectorsTitle">原始像素位移（包含符号）</h3>
+            <p class="help" data-i18n="vectorsHelp">v 表示同一列内相邻图块，h 表示相邻列；dx、dy 是该位移在图像 x、y 方向的分量。单位为当前输入图块的像素，不是平台步数。</p>
+            <div class="vector-grid">
+              <label for="dxV"><span data-i18n="dxV">列内位移 dx_v (px)</span><input id="dxV" type="number" step="any" inputmode="decimal"></label>
+              <label for="dyV"><span data-i18n="dyV">列内位移 dy_v (px)</span><input id="dyV" type="number" step="any" inputmode="decimal"></label>
+              <label for="dxH"><span data-i18n="dxH">跨列位移 dx_h (px)</span><input id="dxH" type="number" step="any" inputmode="decimal"></label>
+              <label for="dyH"><span data-i18n="dyH">跨列位移 dy_h (px)</span><input id="dyH" type="number" step="any" inputmode="decimal"></label>
+            </div>
+            <label for="calibrationNote" data-i18n="calibrationNote">标定依据</label>
+            <textarea id="calibrationNote" rows="3" aria-describedby="calibrationHelp"></textarea>
+            <p id="calibrationHelp" class="help" data-i18n="calibrationHelp">记录相机、物镜、视野、平台位移及标定日期或文件。不要根据文件 MB 猜测向量。</p>
+          </div>
+          <div class="resolution-settings">
+            <h3 data-i18n="resolutionTitle">缓存与输出分辨率</h3>
+            <div class="resolution-grid"><div><label for="scaleDiv" data-i18n="scaleDiv">缓存缩小倍数 (scale_div)</label><select id="scaleDiv" required aria-describedby="scaleDivHelp"></select><p id="scaleDivHelp" class="help" data-i18n="scaleDivHelp">例如 8 表示宽、高各缩小到 1/8。选项已按实际图块尺寸筛选。</p></div><div><label for="outScale" data-i18n="outScale">输出比例 (out_scale)</label><input id="outScale" type="number" min="0.000001" max="1" step="any" value="0.125" required aria-describedby="outScaleHelp"><p id="outScaleHelp" class="help" data-i18n="outScaleHelp">相对于原始图块：0.125 = 1/8，1 = 原始像素尺度。</p></div></div>
+            <label class="check"><input id="full" type="checkbox"><span data-i18n="full">渲染时读取原始图块（full）</span></label>
+            <p class="help" data-i18n="fullHelp">勾选后可使用更高输出比例，读取时间与内存需求可能增加；输出仍由 out_scale 决定。未勾选时，输出比例不能高于 1 / scale_div。</p>
+          </div>
+        </fieldset>
+      </section>
+
+      <section class="step" aria-labelledby="saveTitle">
+        <div class="step-heading"><span class="step-number" aria-hidden="true">03</span><div><h2 id="saveTitle" data-i18n="saveTitle">保存配置与命令</h2><p data-i18n="saveIntro">保存到单独的配置文件夹，之后可检查参数、保留记录并在终端运行。</p></div></div>
+        <fieldset id="saveFields" disabled>
+          <legend class="sr-only" data-i18n="saveTitle">保存配置与命令</legend>
+          <label for="outputParent" data-i18n="outputParent">配置保存位置（父文件夹）</label>
+          <input id="outputParent" type="text" required autocomplete="off" spellcheck="false" aria-describedby="outputHelp">
+          <p class="help" id="outputHelp" data-i18n="outputHelp">检查后会填入建议路径。每次保存会创建独立的配置包，保留图块检查记录和命令参数。</p>
+          <div class="action-row"><button id="prepareButton" type="submit" class="button primary" disabled data-i18n="prepareButton">保存配置并生成命令</button><span id="prepareHint" class="help"></span></div>
+        </fieldset>
+      </section>
+    </form>
+
+    <section id="preparedResult" class="prepared-result" aria-labelledby="preparedTitle" tabindex="-1" hidden>
+      <p class="eyebrow" data-i18n="preparedLabel">PROFILE PREPARED</p><h2 id="preparedTitle" data-i18n="preparedTitle">配置已保存，尚未执行拼接。</h2>
+      <p data-i18n="preparedHelp">先查看配置包中的说明和检查记录，再在已安装 MosaicAgent 依赖的终端中运行命令。生成配置不代表图块配准或拼接已通过验证。</p>
+      <dl id="savedPaths" class="saved-paths"></dl>
+      <div id="prepareWarnings" class="warning-list" hidden></div>
+      <div class="command-heading"><h3 data-i18n="commandTitle">拼接命令</h3><button id="copyButton" type="button" class="button secondary" data-i18n="copy">复制命令</button></div>
+      <p id="commandShell" class="help"></p><pre id="command" tabindex="0" aria-label="拼接命令"></pre><p id="copyStatus" class="help" role="status"></p>
+      <p class="help" data-i18n="commandHelp">在配置包的说明文件中查看运行步骤。请使用上方注明的终端：Windows 使用 PowerShell；macOS / Linux 使用 POSIX shell。argv JSON 保存精确参数。</p>
+    </section>
+    <footer><span data-i18n="footer">MosaicAgent · 本机拼接配置</span><a href="/" data-i18n="back">返回分析工作台</a></footer>
+  </main>
+</body>
+</html>

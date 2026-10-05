@@ -1,0 +1,366 @@
+{
+  "en": {
+    "显微扫描工作台 v3.4 / 自动走位 + 人工确认 + 共享历史": "Microscopy Scan Workbench / 954-1080p-A1 · 1920 × 1080",
+    "请先连接相机\n实时画面会直接显示在本窗口": "Connect the camera first\nThe live view appears in this window",
+    "还没有已确认照片": "No accepted image yet",
+    "开始扫描后在这里确认照片": "Start a scan to review images here",
+    "本次尚未建立照片目录": "No image folder created in this session",
+    "\n照片目录：": "\nImage folder: ",
+    "\n报错：": "\nError: ",
+    "历史写入失败·恢复步骤": "History write failed · Recovery steps",
+    "日志写入失败：按步骤恢复": "Log write failed: recovery steps",
+    "正在核对照片、日志和暂停位置；不会移动平台…": "Checking images, logs and paused position; the stage will not move…",
+    "尚不能继续：照片已保留": "Cannot resume yet: images retained",
+    "复用已保存的当前照片，不重复拍摄": "Reuse the saved current image without capturing it again",
+    "从尚未完成的点继续，必要时原位重拍": "Continue from the unfinished point; retake in place if needed",
+    "记录已修复：请确认现场未变": "Logs repaired: confirm the physical setup is unchanged",
+    "查看历史": "View history",
+    "历史写入失败": "History write failed",
+    "未开始续扫；历史写入失败，照片保留，请检查保存位置并按恢复步骤处理。": "Resume not started: history write failed. Images retained; check storage and follow recovery steps.",
+    "Detecting camera / 正在读取设备...": "Detecting camera...",
+    "相机已连接：请在右侧确认显微镜画面": "Camera connected: confirm the microscope view on the right",
+    "正在断开设备…": "Disconnecting devices…",
+    "正在等待新画面…": "Waiting for a new frame…",
+    "等待你确认：平台保持不动": "Awaiting your decision: stage held stationary",
+    "正在调整起点…": "Adjusting the starting position…",
+    "控制器计数不等于真实机械位移；请结合图像地标确认。": "Controller counters do not prove physical travel; verify image landmarks.",
+    "紧急停止": "Emergency stop",
+    "检查并继续": "Check & resume",
+    "开始扫描": "Start scan",
+    "1  连接设备": "1  Connect devices",
+    "相机未连接 · 位移台未连接": "Camera disconnected · Stage disconnected",
+    "2  样品与扫描": "2  Sample & scan",
+    "样品编号": "Sample ID",
+    "物镜": "Objective",
+    "起点调整 · 不会自动拍照": "Adjust start · No capture",
+    "连接相机后在这里看显微镜画面": "Connect the camera to view the microscope image",
+    "实时画面用于看焦点；下方候选是将要保存的照片。": "Use the live view to check focus. The candidate below is the image to be saved.",
+    "确认保存，下一点": "Accept & save; next point",
+    "原位重拍": "Retake in place",
+    "停止，检查问题": "Stop & inspect",
+    "没有本次运行的完整续扫状态；请保留资料，重新确认起点后新建扫描。": "Complete resume state is unavailable. Retain the files, verify the starting point and create a new scan.",
+    "设备已经重连或执行过其他移动，不能按原位置续扫。": "Devices were reconnected or another move occurred; cannot resume from the old position.",
+    "平台连接或位置已改变，不能续扫；请重新核对起点。": "Stage connection or position changed. Cannot resume; recheck the starting point.",
+    "暂停位置已改变，不能续扫。": "Paused position changed; cannot resume.",
+    "已取消恢复，设备保持停止。": "Recovery cancelled; devices remain stopped.",
+    "未续扫：": "Not resumed: ",
+    "\n\n修正保存问题后可再点“检查并继续”。设备或位置改变时，请正常退出、核对起点后新建扫描。": "\n\nAfter fixing storage, use Check & resume again. If devices or position changed, exit normally, verify the starting point and create a new scan.",
+    "恢复期间已停止或关闭；不会继续扫描。": "Stopped or closed during recovery; scan will not resume.",
+    "。继续使用原扫描参数和原文件夹。\n选“是”后程序会再次核对位置，再继续；不确定请选“否”。": ". Keep the original scan settings and folder.\nChoose Yes to recheck position and continue; choose No if uncertain.",
+    "记录已核对，尚未续扫；确认现场后可再点“检查并继续”。": "Logs checked; scan not resumed. Confirm the physical setup, then use Check & resume.",
+    "恢复期间位置状态失效；不会移动。": "Position state became invalid during recovery; no movement.",
+    "记录修复完成，继续第 ": "Logs repaired; continuing at point ",
+    " 点": " ",
+    "相机已连接，但历史写入失败；请查看恢复步骤。": "Camera connected, but history write failed; see recovery steps.",
+    "设备忙": "Devices busy",
+    "请先停止扫描，等待当前操作结束。": "Stop the scan and wait for the current operation to finish.",
+    "设备已断开 · 保留上一帧": "Disconnected · Last frame retained",
+    "断开失败 · 画面非实时": "Disconnect failed · Image is not live",
+    "设备已断开": "Devices disconnected",
+    "相机已连接": "Camera connected",
+    "相机未连接": "Camera disconnected",
+    "预览已暂停 · 保留上一帧": "Preview paused · Last frame retained",
+    " 左：上一张已确认；右：当前待确认。接受后保存的就是右侧这张。": " Left: previous accepted image. Right: current candidate. Accept saves exactly the right-hand image.",
+    "上一张已确认": "Previous accepted image",
+    "当前待确认": "Current candidate",
+    "位移台未连接": "Stage disconnected",
+    "请先连接位移台。": "Connect the stage first.",
+    "起点已调整：请看实时画面确认位置": "Starting position adjusted: verify it in the live view",
+    "记录写入失败，扫描暂停；检查保存位置后点“检查并继续”。": "Log write failed; scan paused. Check storage, then use Check & resume.",
+    "控制器核对的逻辑步数：X=": "Controller-checked logical steps: X=",
+    "按当前标定换算 um：X=": "Converted using current calibration (um): X=",
+    "列 NX": "Cols NX",
+    "行 NY": "Rows NY",
+    "X 步长": "X step",
+    "Y 步长": "Y step",
+    "历史写入失败，已停止新增操作；请保留数据并按恢复步骤检查：": "History write failed; new operations stopped. Retain data and follow recovery steps: ",
+    "相机已断开，不能续扫。": "Camera disconnected; cannot resume.",
+    "相机或图像尺寸改变，不能混入本轮扫描。": "Camera or image dimensions changed; cannot mix them in this scan.",
+    "相机采集设置改变，请新建扫描。": "Camera acquisition settings changed; start a new scan.",
+    "请看显微镜或实时画面：样品、视野、焦点均未改变，且没有手动移动或重连设备吗？\n\n": "Check the microscope or live view: are the sample, field and focus unchanged, with no manual movement or device reconnection?\n\n",
+    "断开设备失败：": "Device disconnect failed: ",
+    " · 位移台已连接": " · Stage connected",
+    " · 位移台未连接": " · Stage disconnected",
+    "实时 · 下方候选保持不变": "Live · Candidate below stays frozen",
+    "预览读取失败 · 显示的是上一帧": "Preview read failed · Showing the last frame",
+    "正在取图 ": "Acquiring image ",
+    "第 ": "Point ",
+    " 点：": ": ",
+    " 清晰度偏低，请先调焦并原位重拍。": " Low sharpness: adjust focus, then retake in place.",
+    "请核实当前照片": "Verify the current image",
+    "自动检查未通过或不确定。你已确认画面确实移动且图像可用吗？\n若仍模糊，请取消后选择原位重拍。人工确认将保留在日志中。": "Automatic checks failed or are uncertain. Have you confirmed that the field moved and the image is usable?\nIf still blurred, cancel and retake in place. Your confirmation will be recorded.",
+    "移动未通过检查：": "Move verification failed: ",
+    "开始前确认": "Confirm before starting",
+    "当前预览是显微镜样品，已确认起点、方向和焦点吗？\n默认每点人工确认；未确认前不会自动进入下一点。": "Does the preview show the microscope sample, with the starting point, direction and focus verified?\nPoint-by-point confirmation is the default; the next point waits for acceptance.",
+    "扫描尚未开始：记录创建失败；请查看恢复步骤。": "Scan not started: record creation failed; see recovery steps.",
+    "断开失败，请检查设备后重试：": "Disconnect failed; check devices and retry: ",
+    "显微扫描工作台": "Microscopy Scan Workbench",
+    "v3.4 · 看图确认后再走下一点": "954-base · UI L1",
+    "连接相机": "Connect camera",
+    "连接位移台": "Connect stage",
+    "换一个相机": "Next camera",
+    "断开设备": "Disconnect",
+    "先沿 X": "X first",
+    "先沿 Y": "Y first",
+    "逐点确认": "Confirm each point",
+    "连续采集": "Continuous",
+    "重叠 X": "Overlap X",
+    "应用": "Apply",
+    "实时画面": "Live view",
+    "预览 / 暂停": "Preview / pause",
+    "上一张 · 已确认": "Previous · Accepted",
+    "当前候选 · 确认后保存这张": "Current candidate · Save after acceptance",
+    "历史记录未能写入；已停止后续采集。已有照片保留。 ": "History could not be written; acquisition stopped. Existing images retained. ",
+    "未取得并保存新图像，已停在当前点；检查相机后再继续。": "No new image was acquired and saved. Stopped at this point; check the camera before continuing.",
+    "起点，没有上一张照片": "Starting point: no previous image",
+    "无法读取照片": "Cannot read image",
+    "采集结束：": "Acquisition ended: ",
+    " 张已保存；仍需核对整幅覆盖": " images saved; full coverage still needs verification",
+    "等待新画面 · 上次更新 ": "Waiting for frame · Last update ",
+    " 秒前": " s ago",
+    "照片显示失败：请原位重拍或停止检查": "Cannot display image: retake in place or stop and inspect",
+    "照片显示失败，不能确认保存。请原位重拍或停止检查。 ": "Cannot display image; acceptance disabled. Retake in place or stop and inspect. ",
+    "照片保留，但历史写入不完整；请保留整个文件夹并检查磁盘。": "Images retained, but history is incomplete. Retain the whole folder and check the disk.",
+    "照片可能已保存，但日志不完整。本次已禁止继续扫描；不要删除照片或手工补改 JSON。\n\n1. 看位移台是否停稳；若仍在移动或不安全，先点“紧急停止”。\n2. 截图当前报错；保留整个解压程序文件夹（照片、历史和程序都保留）。\n3. 等当前操作结束，点“断开设备”，再关闭窗口。断开报错时不要重复开程序，请联系老师。\n4. 检查磁盘空间、目录写入权限。需要换位置时，退出后重新解压到可写的本地目录，保留原目录。\n5. 重新双击 02_start_scan.bat，重新连接位移台和相机。通常只重启程序，不用重启电脑。\n6. 人工找回并确认起点、方向和焦点；程序不会自动回到原起点。先做 NX=2、NY=1 的新扫描。\n7. 新扫描保存到新的时间戳目录；不续接旧的部分扫描。再次报同样错误就停止，交回原目录和截图。\n\n详细步骤见：00_学生操作与故障恢复手册.pdf 第 6–7 页\n程序目录：": "Images may be saved, but the log is incomplete. Continuing this scan is blocked. Do not delete images or edit JSON manually.\n\n1. Check that the stage has stopped; use Emergency stop if it is moving or unsafe.\n2. Capture the error message and retain the entire program folder, images and history.\n3. Wait for the operation to finish, disconnect devices and close the window. If disconnect fails, contact the supervisor; do not start a second instance.\n4. Check disk space and folder permissions. If needed, extract to a writable local folder after exiting; retain the original folder.\n5. Start 02_start_scan.bat again and reconnect. Usually only the program needs restarting.\n6. Manually find and verify the starting point, direction and focus. The program does not return to the old position. Start a new NX=2, NY=1 scan.\n7. The new scan uses a new timestamped folder; it does not resume the partial scan. If the error recurs, stop and return the original folder and screenshots.\n\nSee the included recovery PDF, pages 6–7.\nProgram folder: ",
+    "照片已保留，扫描已暂停。通常不用关闭程序。\n\n1. 保持样品、焦点和设备连接不变，不点移动按钮。\n2. 检查磁盘空间，关闭占用日志的编辑器；不删除或修改实验数据。\n3. 点顶部“检查并继续”。程序会核对照片、日志、相机及平台计数。\n4. 核对通过后，看显微镜或实时画面，确认样品和视野没变，再同意继续。\n\n已保存且核对一致的照片会复用；尚未完成的点在原位重新取候选。如果设备已重连、急停或位置改变，则不能从旧轮次续扫。\n详细说明见包内 PDF 第6–7页。\n照片目录：": "Images retained; scan paused. Usually you do not need to close the program.\n\n1. Keep sample, focus and device connections unchanged. Do not move the stage.\n2. Check disk space and close editors locking the logs; do not delete or edit experimental data.\n3. Use Check & resume. The program verifies images, logs, camera and controller counters.\n4. After checks pass, inspect the microscope or live view and confirm the sample and field are unchanged before agreeing to continue.\n\nVerified saved images are reused; unfinished points acquire a new candidate in place. Reconnection, emergency stop or changed position prevents resuming the old scan.\nSee the included PDF, pages 6–7.\nImage folder: ",
+    "程序历史开始": "Application history started",
+    "程序正常关闭": "Application closed normally",
+    "请求连接位移台": "Stage connection requested",
+    "位移台已连接": "Stage connected",
+    "位移台连接失败": "Stage connection failed",
+    "请求连接相机": "Camera connection requested",
+    "相机连接失败": "Camera connection failed",
+    "断开失败": "Disconnect failed",
+    "手动移动：请求": "Manual move requested",
+    "手动移动：计数核对完成": "Manual move: counters checked",
+    "手动移动：失败": "Manual move failed",
+    "扫描移动：请求": "Scan move requested",
+    "扫描移动：计数核对完成": "Scan move: counters checked",
+    "扫描移动：失败": "Scan move failed",
+    "控制器位置核对": "Controller position checked",
+    "扫描开始": "Scan started",
+    "扫描结束": "Scan ended",
+    "请求取图": "Capture requested",
+    "取图失败": "Capture failed",
+    "候选照片已保存": "Candidate image saved",
+    "人工检查 / 取消": "Operator review / cancel",
+    "准备保存正式照片": "Preparing accepted image",
+    "正式照片已保存": "Accepted image saved",
+    "采集记录完成": "Capture record completed",
+    "请求紧急停止": "Emergency stop requested",
+    "继续扫描": "Resume scan",
+    "继续前核对相机": "Camera check before resume",
+    "仅停留，未拍照": "Dwell only; no capture",
+    "移动与保存历史 · 只读": "Motion and save history · Read only",
+    "连接设备或操作后自动生成历史。": "History is created when devices are connected or operated.",
+    "序号": "No.",
+    "时间（UTC）": "Time (UTC)",
+    "操作": "Action",
+    "结果 / 位置": "Result / position",
+    "照片文件": "Image file",
+    "尚无历史。连接设备、手动移动和扫描时会自动记录。": "No history yet. Connections, manual moves and scans are recorded automatically.",
+    " · 有未完成日志，请检查": " · Incomplete log; inspect it",
+    " · 位移台仿真": " · Simulated stage",
+    "点击一行查看完整 JSON。移动完成表示控制器计数已核对；实际画面需结合图像与人工确认。": "Select a row for raw JSON. Completed motion means controller counters were checked; verify the physical field using images and human review.",
+    "%s 条记录%s · %s · %s%s": "%s records%s · %s · %s%s",
+    "刷新": "Refresh",
+    "打开 JSON 所在文件夹": "Open JSON folder",
+    "请求步数 ΔX=%s  ΔY=%s": "Requested steps ΔX=%s  ΔY=%s",
+    "逻辑步数 X=%s  Y=%s": "Logical steps X=%s  Y=%s",
+    "无法读取，请保留原文件：": "Cannot read; retain the original file: ",
+    "历史目录读取失败：": "Cannot read history folder: ",
+    "打开文件夹失败": "Cannot open folder",
+    "人工选择接受": "Accepted by operator",
+    "停止 / 取消": "Stop / cancel",
+    "完成": "Completed",
+    "失败": "Failed",
+    "已中止": "Aborted",
+    "程序已关闭": "Application closed",
+    "程序运行中或尚未正常关闭": "Application running or not yet closed normally",
+    "起点：请确认样品、视野和焦点。": "Starting point: verify sample, field and focus.",
+    "图像无法比较，请人工核对。": "Cannot compare images; inspect manually.",
+    "地标不足，请人工核对位置和清晰度。": "Too few landmarks; check position and sharpness manually.",
+    "共同地标不足，请核对重叠、方向和焦点。": "Too few shared landmarks; check overlap, direction and focus.",
+    "配准不确定，请人工核对。": "Registration uncertain; inspect manually.",
+    "配准证据不足，请人工核对。": "Insufficient registration evidence; inspect manually.",
+    "疑似仍是上一位置：先原位重拍；仍未变化就停止检查。": "Possibly the same field: retake in place; if unchanged, stop and inspect.",
+    "检测到地标变化；这不等于位置和图像质量已经全部验收。": "Landmark change detected; position and image quality still require verification.",
+    "相机已连接 · 位移台已连接": "Camera connected · Stage connected",
+    "相机已连接 · 位移台未连接": "Camera connected · Stage disconnected",
+    "相机未连接 · 位移台已连接": "Camera disconnected · Stage connected"
+  },
+  "templates": [
+    [
+      "照片可能已保存，但日志不完整。本次已禁止继续扫描；不要删除照片或手工补改 JSON。\n\n1. 看位移台是否停稳；若仍在移动或不安全，先点“紧急停止”。\n2. 截图当前报错；保留整个解压程序文件夹（照片、历史和程序都保留）。\n3. 等当前操作结束，点“断开设备”，再关闭窗口。断开报错时不要重复开程序，请联系老师。\n4. 检查磁盘空间、目录写入权限。需要换位置时，退出后重新解压到可写的本地目录，保留原目录。\n5. 重新双击 02_start_scan.bat，重新连接位移台和相机。通常只重启程序，不用重启电脑。\n6. 人工找回并确认起点、方向和焦点；程序不会自动回到原起点。先做 NX=2、NY=1 的新扫描。\n7. 新扫描保存到新的时间戳目录；不续接旧的部分扫描。再次报同样错误就停止，交回原目录和截图。\n\n详细步骤见：00_学生操作与故障恢复手册.pdf 第 6–7 页\n程序目录：",
+      {
+        "field": "base"
+      },
+      "\n照片目录：",
+      {
+        "field": "photo_folder"
+      },
+      "\n报错：",
+      {
+        "field": "self._history_error"
+      }
+    ],
+    [
+      "照片已保留，扫描已暂停。通常不用关闭程序。\n\n1. 保持样品、焦点和设备连接不变，不点移动按钮。\n2. 检查磁盘空间，关闭占用日志的编辑器；不删除或修改实验数据。\n3. 点顶部“检查并继续”。程序会核对照片、日志、相机及平台计数。\n4. 核对通过后，看显微镜或实时画面，确认样品和视野没变，再同意继续。\n\n已保存且核对一致的照片会复用；尚未完成的点在原位重新取候选。如果设备已重连、急停或位置改变，则不能从旧轮次续扫。\n详细说明见包内 PDF 第6–7页。\n照片目录：",
+      {
+        "field": "photo_folder"
+      },
+      "\n报错：",
+      {
+        "field": "self._history_error"
+      }
+    ],
+    [
+      "未续扫：",
+      {
+        "field": "str(error)"
+      }
+    ],
+    [
+      {
+        "field": "str(error)"
+      },
+      "\n\n修正保存问题后可再点“检查并继续”。设备或位置改变时，请正常退出、核对起点后新建扫描。"
+    ],
+    [
+      "请看显微镜或实时画面：样品、视野、焦点均未改变，且没有手动移动或重连设备吗？\n\n",
+      {
+        "field": "action"
+      },
+      "。继续使用原扫描参数和原文件夹。\n选“是”后程序会再次核对位置，再继续；不确定请选“否”。"
+    ],
+    [
+      "记录修复完成，继续第 ",
+      {
+        "field": "self._scan_done_count + 1"
+      },
+      "/",
+      {
+        "field": "self._planned_total"
+      },
+      " 点"
+    ],
+    [
+      {
+        "field": "summary"
+      },
+      " 左：上一张已确认；右：当前待确认。接受后保存的就是右侧这张。"
+    ],
+    [
+      "控制器核对的逻辑步数：X=",
+      {
+        "field": "x"
+      },
+      ", Y=",
+      {
+        "field": "y"
+      }
+    ],
+    [
+      "按当前标定换算 um：X=",
+      {
+        "field": "steps_to_um(x)"
+      },
+      ", Y=",
+      {
+        "field": "steps_to_um(y)"
+      }
+    ],
+    [
+      "历史写入失败，已停止新增操作；请保留数据并按恢复步骤检查：",
+      {
+        "field": "self._history_error"
+      }
+    ],
+    [
+      "请看显微镜或实时画面：样品、视野、焦点均未改变，且没有手动移动或重连设备吗？\n\n",
+      {
+        "field": "action"
+      }
+    ],
+    [
+      "断开设备失败：",
+      {
+        "field": "error"
+      }
+    ],
+    [
+      "正在取图 ",
+      {
+        "field": "photo_idx"
+      },
+      "/",
+      {
+        "field": "total"
+      }
+    ],
+    [
+      "第 ",
+      {
+        "field": "photo_idx"
+      },
+      "/",
+      {
+        "field": "total"
+      },
+      " 点：",
+      {
+        "field": "diagnostic['message']"
+      }
+    ],
+    [
+      "移动未通过检查：",
+      {
+        "field": "error"
+      }
+    ],
+    [
+      "断开失败，请检查设备后重试：",
+      {
+        "field": "self._disconnect_error"
+      }
+    ],
+    [
+      "历史记录未能写入；已停止后续采集。已有照片保留。 ",
+      {
+        "field": "str(exc)"
+      }
+    ],
+    [
+      "采集结束：",
+      {
+        "field": "self._photo_count"
+      },
+      " 张已保存；仍需核对整幅覆盖"
+    ],
+    [
+      "等待新画面 · 上次更新 ",
+      {
+        "field": "age"
+      },
+      " 秒前"
+    ],
+    [
+      "照片显示失败，不能确认保存。请原位重拍或停止检查。 ",
+      {
+        "field": "str(exc)"
+      }
+    ],
+    [
+      "无法读取，请保留原文件：",
+      {
+        "field": "str(exc)"
+      }
+    ],
+    [
+      "历史目录读取失败：",
+      {
+        "field": "str(exc)"
+      }
+    ]
+  ]
+}

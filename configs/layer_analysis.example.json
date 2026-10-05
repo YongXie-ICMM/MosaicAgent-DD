@@ -1,0 +1,21 @@
+{
+  "work_root": "./outputs/layers",
+  "mosaic_agent": ".",
+  "weights": "./weights/model_0409_all.pth",
+  "tile": 512,
+  "overlap": 64,
+  "batch": 1,
+  "threads": 2,
+  "border_trim_px": 0,
+  "filler": "white",
+  "votes": 3,
+  "workers": 2,
+  "no_ai": true,
+  "no_repair": true,
+  "samples": [
+    {
+      "name": "SAMPLE001",
+      "mosaic_in": "./data/sample_mosaic.png"
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "release": "954-1080p-A1 public source export",
+  "distribution_type": "source_only",
+  "source_repo_commit": "25a839261ae033f068bdcc84507a8cb0e749f760",
+  "local_changes": false,
+  "hardware_validated": false,
+  "external_model_calls": 0,
+  "expected_image_size": [
+    1920,
+    1080
+  ],
+  "calibration_status": "unverified_for_current_mode",
+  "raw_images_resized": false,
+  "vendor_sdk_included": false,
+  "verification_scope": "Runtime source integrity only; no vendor-driver availability or instrument readiness claim.",
+  "files": [
+    {
+      "path": "03Auto_Snake_Scan_Camera_v3.py",
+      "sha256": "784159ac2e9ba39cf312b57f37b5ca0eb6bc617f1c2dcf6d81e00687a4207495",
+      "bytes": 116304
+    },
+    {
+      "path": "Camera_v2.py",
+      "sha256": "1f4e12eab9c907781f8a917c6f4d6f8e16966714b163c8a1eb06b190d31bcd8e",
+      "bytes": 53383
+    },
+    {
+      "path": "camera_session_history.py",
+      "sha256": "6be7f391935b7abbf313ebb95bda22e34a36e169d613c817accc04036b40d81d",
+      "bytes": 20218
+    },
+    {
+      "path": "scan_review.py",
+      "sha256": "ed226508a8e374695828b8fb83715e2c4536e5c5ba981ed46a1e56872f3cf423",
+      "bytes": 3719
+    },
+    {
+      "path": "scan_preview.py",
+      "sha256": "5690fada55b874129491409e57e631bd92b05c97f3222a872814c9ac1503c571",
+      "bytes": 3841
+    },
+    {
+      "path": "shared_history.py",
+      "sha256": "8292b4f559423a69cfb62541d66ceb680d81c68017b9e8192c87d4ee2e9c17f3",
+      "bytes": 27700
+    },
+    {
+      "path": "history_viewer.py",
+      "sha256": "3361e0bd6b553591b5c25d2a725af39d8a78adf504bd44c11f0ff5621c943085",
+      "bytes": 7569
+    },
+    {
+      "path": "scan_log_resume.py",
+      "sha256": "4c998d09a499d1b53f64417b41df56bc1c98bde10cbc08ad6a44a24c4997028b",
+      "bytes": 5005
+    },
+    {
+      "path": "acquisition_contract.py",
+      "sha256": "d316fc93cb8ad656710751a923b7bee16de35ccb56f55e443ca114bb6821d1bb",
+      "bytes": 3035
+    },
+    {
+      "path": "gui_language.py",
+      "sha256": "102ebeee2a30188d14e35a37a74a30f526d71bd4ba1a1bf02054baa70e7a68e3",
+      "bytes": 10192
+    },
+    {
+      "path": "gui_language_catalog.json",
+      "sha256": "c826d67158465a232718cc48c730286d4d36830190a20beb4d126d98dd19c9e6",
+      "bytes": 23786
+    },
+    {
+      "path": "gui_theme.py",
+      "sha256": "8f0debe7164e057ab4ec3bf3cc5f6206c67eed331ba917529fb45d65ab0f4df8",
+      "bytes": 14056
+    },
+    {
+      "path": "launch_scan.py",
+      "sha256": "508234308eb3db1327a58c473746044d7e6ed414a03e218248ba5a28dfa76c97",
+      "bytes": 4678
+    },
+    {
+      "path": "01_setup.bat",
+      "sha256": "fbdb99b993ad4e1b115d9650da75dab3dfadbba3108dd9dd5fd632a804c7b633",
+      "bytes": 206
+    },
+    {
+      "path": "02_start_scan.bat",
+      "sha256": "ab38d77accc066b27bb886a38b4181354de7861c03426d2fbcd0a74aab1e527e",
+      "bytes": 156
+    },
+    {
+      "path": "requirements_scan.txt",
+      "sha256": "3dce4151fb6e825170459fb0ff5f2bd4db1a33c5f47882befa29ed25cc17c779",
+      "bytes": 20
+    }
+  ]
+}

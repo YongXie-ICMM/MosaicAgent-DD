@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-05",
+  "note": "Scanner revisions the workbench recognises. Prefixes are Git commit prefixes of AmScope-Camera. Edit this file, not scan_bridge.py, when a scanner release changes.",
+  "revisions": [
+    {
+      "prefixes": [
+        "25a8392"
+      ],
+      "zh": "954-1080p-A1：已加入实际1920 × 1080图像检查及Claude字体层。新版本仅完成离线检查，等待两轮3 × 3实机与拼接验收；旧954点结果不能当作本版验证。",
+      "en": "954-1080p-A1 adds received 1920 × 1080 image checks and Claude typography. Offline checks completed; two new 3 × 3 instrument/stitching trials are pending. The original 954-point result does not validate this release."
+    },
+    {
+      "prefixes": [
+        "8a7cd29"
+      ],
+      "zh": "历史字体版本8a7cd29，已由954-1080p-A1替代。该次显示更新的Windows实机界面验证仍待完成，也没有新的954点实机验证。",
+      "en": "Historical typography revision 8a7cd29, superseded by 954-1080p-A1. Windows instrument UI validation of that display update remains pending; it has no new 954-point instrument validation."
+    },
+    {
+      "prefixes": [
+        "46f48ac",
+        "f409384"
+      ],
+      "zh": "历史L1基线，已由954-1080p-A1替代。954点记录属于学生原始采集程序；新增语言界面未经过该次长扫验证。",
+      "en": "Historical L1 baseline, superseded by 954-1080p-A1. The 954-point record belongs to the student acquisition source, not the added language UI."
+    }
+  ],
+  "unknown": {
+    "zh": "当前检出尚未归入已核对发布版本；请核对实际源码和交付清单。实机验证范围应以对应版本说明为准。",
+    "en": "This checkout is not a recognized reviewed release; check the actual source and delivery manifest. Instrument-validation scope must be checked for the corresponding release."
+  },
+  "no_revision": {
+    "zh": "无法确认扫描程序版本：既无 Git 记录，也无交付清单 delivery_manifest.json。请使用负责人发放的完整学生包。",
+    "en": "Scanner version cannot be confirmed: neither a Git record nor delivery_manifest.json is present. Use the complete student package issued by the project lead."
+  }
+}
