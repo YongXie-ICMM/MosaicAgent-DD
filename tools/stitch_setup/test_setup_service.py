@@ -30,6 +30,15 @@ def no_external_execution(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", forbidden)
 
 
+_real_kimi_status = service.kimi_status
+
+
+@pytest.fixture(autouse=True)
+def no_kimi_credentials(monkeypatch):
+    """Tests must not depend on the developer's own .env; a test opts in explicitly."""
+    monkeypatch.setattr(service, "kimi_status", lambda env=None: _real_kimi_status({} if env is None else env))
+
+
 def png(size=(640, 360), color=(80, 100, 120)):
     buffer = io.BytesIO()
     Image.new("RGB", size, color).save(buffer, format="PNG")
@@ -306,3 +315,45 @@ def test_layer_handoff_keeps_native_headers_and_selected_render_scale_separate(g
     assert result['layer_next_step'] in result['warnings']
     assert '--input-preflight' in preflight['argv']
     assert hashes(grid) == before
+
+
+def test_without_credentials_the_command_is_offline(grid):
+    first = service.dispatch("prepare", preparation(grid))
+    argv = json.loads(Path(first["argv_path"]).read_text())
+    assert "--no-ai" in argv
+    saved = json.loads(Path(first["preflight_path"]).read_text())
+    assert saved["kimi"] == {"configured": False, "mode": "no-ai",
+                             "detail": "no KIMI_API_KEY in MOSAIC_ENV, the repository .env or the environment; statistics-only fallbacks"}
+    instructions = Path(first["bundle_dir"], "instructions.txt").read_text(encoding="utf-8")
+    assert "--no-ai" in instructions and "Kimi is not configured" in "\n".join(first["warnings"])
+
+
+def test_with_credentials_the_command_uses_kimi_like_the_original_pipeline(grid, monkeypatch):
+    monkeypatch.setattr(service, "kimi_status",
+                        lambda env=None: _real_kimi_status({"KIMI_API_KEY": "test-key", "KIMI_VISION_MODEL": "kimi-k3"}))
+    first = service.dispatch("prepare", preparation(grid))
+    argv = json.loads(Path(first["argv_path"]).read_text())
+    assert "--no-ai" not in argv
+    saved = json.loads(Path(first["preflight_path"]).read_text())
+    assert saved["kimi"]["mode"] == "kimi" and saved["kimi"]["vision_model"] == "kimi-k3"
+    assert "test-key" not in json.dumps(saved) and "test-key" not in first["command"]
+    instructions = Path(first["bundle_dir"], "instructions.txt").read_text(encoding="utf-8")
+    assert "调用 Kimi" in instructions and "--no-ai" not in instructions
+    assert any("Kimi is configured" in w for w in first["warnings"])
+
+
+def test_ai_mode_off_forces_offline_even_with_credentials(grid, monkeypatch):
+    monkeypatch.setattr(service, "kimi_status", lambda env=None: _real_kimi_status({"KIMI_API_KEY": "test-key"}))
+    first = service.dispatch("prepare", preparation(grid, ai_mode="off"))
+    argv = json.loads(Path(first["argv_path"]).read_text())
+    assert "--no-ai" in argv
+    assert json.loads(Path(first["preflight_path"]).read_text())["kimi"]["detail"].startswith("disabled by request")
+    with pytest.raises(ValueError, match="ai_mode"):
+        service.dispatch("prepare", preparation(grid, ai_mode="maybe"))
+
+
+def test_kimi_status_never_exposes_the_key():
+    status = _real_kimi_status({"KIMI_API_KEY": "secret-value"})
+    assert status["configured"] and status["mode"] == "kimi"
+    assert "secret-value" not in json.dumps(status)
+    assert _real_kimi_status({})["mode"] == "no-ai"

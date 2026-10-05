@@ -204,6 +204,32 @@ def _prepare_profile(body, inspection, inventory):
     return resolved, note
 
 
+def kimi_status(env=None):
+    """Whether run_stitch.py will find Kimi credentials, using the same search as
+    kimi_agents.load_env (MOSAIC_ENV, the repository .env, environment variables).
+    The key itself is never returned or written anywhere. Owner decision 2026-10-05:
+    the student workflow uses Kimi for the stitching judgement steps exactly as the
+    original pipeline did, so --no-ai is added only when no credentials are present."""
+    kimi = None
+    if env is None:
+        try:
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
+            kimi = importlib.import_module("kimi_agents")
+            env = kimi.load_env()
+        except Exception as exc:  # pragma: no cover - a broken client module must not block a local stitch
+            return {"configured": False, "mode": "no-ai", "detail": f"kimi_agents unavailable: {exc}"}
+    configured = bool(env.get("KIMI_API_KEY"))
+    status = {"configured": configured, "mode": "kimi" if configured else "no-ai"}
+    if configured:
+        status["vision_model"] = env.get("KIMI_VISION_MODEL") or getattr(kimi, "DEFAULT_MODEL", None) or "default"
+        status["base_url"] = env.get("KIMI_BASE_URL") or getattr(kimi, "DEFAULT_BASE_URL", None) or "default"
+        status["steps"] = ["qc_vote_on_borderline_focus", "conflict_choice_between_duplicates", "seam_inspection"]
+    else:
+        status["detail"] = "no KIMI_API_KEY in MOSAIC_ENV, the repository .env or the environment; statistics-only fallbacks"
+    return status
+
+
 def _command(argv):
     if os.name == "nt":
         return "& " + " ".join("'" + arg.replace("'", "''") + "'" for arg in argv), "PowerShell"
@@ -291,10 +317,16 @@ def _prepare(body):
     argv_path = bundle / "argv.json"
     instructions_path = bundle / "instructions.txt"
     layer_contract_path = bundle / "layer_input_contract.json"
+    ai_mode = _text(body, "ai_mode", limit=16) or "auto"
+    if ai_mode not in ("auto", "off"):
+        raise ValueError("ai_mode must be 'auto' or 'off' / 只能为 auto 或 off。")
+    kimi = kimi_status() if ai_mode == "auto" else {"configured": False, "mode": "no-ai", "detail": "disabled by request (ai_mode=off)"}
     argv = [sys.executable, str(ROOT / "run_stitch.py"), "--data", str(data_dir),
             "--work", str(bundle / "work"), "--out", str(bundle / "mosaic.png"),
             "--stitch-profile", str(profile_path), "--scale-div", str(resolved["scale_div"]),
-            "--out-scale", str(resolved["out_scale"]), "--input-preflight", str(preflight_path), "--no-ai"]
+            "--out-scale", str(resolved["out_scale"]), "--input-preflight", str(preflight_path)]
+    if kimi["mode"] == "no-ai":
+        argv.append("--no-ai")
     if checked["layout"] is not None:
         argv.extend(["--layout", str(bundle / "layout.json")])
     if resolved["full"]:
@@ -305,12 +337,22 @@ def _prepare(body):
                        "applicable checkpoint and actual field of view before inference / "
                        "层数输入尺寸已保存至 layer_input_contract.json；参考采集模式、适用权重与实际视野需核对。")
     warnings.append(layer_next_step)
+    if kimi["mode"] == "kimi":
+        warnings.append("Kimi is configured: the stitch votes on borderline-focus tiles, chooses between duplicate "
+                        "candidates and spot-checks seams by sending tile thumbnails to the Moonshot service "
+                        f"(vision model {kimi['vision_model']}); every call is cached and logged under work/kimi_cache / "
+                        f"已配置 Kimi：拼接会把瓦片缩略图发送给 Moonshot 服务做质检投票、同格位二选一和接缝抽查（视觉模型 {kimi['vision_model']}），"
+                        "每次调用都缓存并记录在 work/kimi_cache。")
+    else:
+        warnings.append("Kimi is not configured: borderline tiles are kept for human review, duplicates are resolved by "
+                        "focus score and seams are not spot-checked automatically / "
+                        "未配置 Kimi：边缘瓦片全部保留待人工复核，同格位候选按对焦分数保留，接缝不自动抽查。")
     preflight = {
         "schema_version": 1, "status": "profile_prepared", "stitch_executed": False,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "inspection": inspection, "input_inventory": checked["inventory"],
         "layout": checked["layout"], "resolved": resolved,
-        "calibration_note": note, "warnings": warnings, "argv": argv,
+        "calibration_note": note, "warnings": warnings, "argv": argv, "kimi": kimi,
     }
     instructions = (
         "拼接设置已准备；尚未执行拼接 / Stitch profile prepared; stitching has NOT run.\n\n"
@@ -318,8 +360,12 @@ def _prepare(body):
         "   Raw inputs stay in place. This bundle records their inventory, selected calibration and arguments.\n"
         "2. 确认本机 Python 环境已安装项目依赖，再检查并运行下列命令。\n"
         "   Verify the Python environment and project dependencies, then review and run the command below.\n"
-        "3. 命令仅在本地拼接，包含 --no-ai；不会启动扫描或请求外部模型。\n"
-        "   The command stitches locally with --no-ai; it does not start acquisition or call an external model.\n"
+        + ("3. 命令在本地拼接，并调用 Kimi 看图做质检投票、同格位二选一和接缝抽查（使用 .env 里的 KIMI_API_KEY，瓦片缩略图会发送到 Moonshot 服务）；不会启动扫描。\n"
+           "   The command stitches locally and calls Kimi for QC votes, duplicate choice and seam inspection (KIMI_API_KEY from .env; tile thumbnails are sent to the Moonshot service); it does not start acquisition.\n"
+           if kimi["mode"] == "kimi" else
+           "3. 命令仅在本地拼接，包含 --no-ai；不会启动扫描或请求外部模型。\n"
+           "   The command stitches locally with --no-ai; it does not start acquisition or call an external model.\n")
+        + 
         "4. 成图后仍须检查真实相邻图像、重叠、断开区域和配准报告；产出文件不等于拼接验收。\n"
         "   Verify adjacent raw tiles, overlap, disconnected areas and registration reports before accepting a mosaic.\n\n"
         f"Shell / 参数格式: {shell}\n{command}\n\n"
