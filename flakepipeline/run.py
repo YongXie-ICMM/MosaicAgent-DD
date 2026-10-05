@@ -31,10 +31,30 @@ def main():
                     help="human_verdicts.json to apply (default: <work_root>/REVIEW/human_verdicts.json)")
     ap.add_argument("--no-repair", action="store_true",
                     help="disable the orchestrator's automatic parameter-repair tools")
+    ap.add_argument("--layer-input-contract", help="layer_input_contract.json from stitch setup")
+    ap.add_argument("--reference-capture-size", nargs=2, type=int, metavar=("WIDTH", "HEIGHT"),
+                    help="previous model inference capture size, not the training crop")
+    ap.add_argument("--same-fov-confirmed", action="store_true",
+                    help="operator has verified unchanged physical FOV and objective (not cropping)")
     a = ap.parse_args()
+    if (a.layer_input_contract is None) != (a.reference_capture_size is None):
+        ap.error("--layer-input-contract and --reference-capture-size must be supplied together")
+    if a.same_fov_confirmed and not a.layer_input_contract:
+        ap.error("--same-fov-confirmed requires the recorded input contract")
 
     cfg = json.loads(Path(a.config).read_text())
     samples = cfg.pop("samples")
+    if a.layer_input_contract:
+        from inference_geometry import geometry_from_layer_contract
+        try:
+            geometry = geometry_from_layer_contract(a.layer_input_contract, a.reference_capture_size,
+                        same_physical_fov_confirmed=a.same_fov_confirmed,
+                        model_tile=cfg.get("tile", 512), model_overlap=cfg.get("overlap", 64))
+        except (OSError, ValueError) as exc:
+            ap.error("Invalid layer input contract / 层数输入记录核验失败: " + str(exc))
+        if not geometry["adapted_mode_allowed"]:
+            ap.error("Layer scale is not verified / 层数识别尺度尚未核对: " + ", ".join(geometry["reasons"]))
+        cfg["inference_geometry"] = geometry
     if a.no_ai:
         cfg["no_ai"] = True
     if a.force:

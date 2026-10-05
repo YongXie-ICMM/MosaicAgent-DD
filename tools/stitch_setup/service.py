@@ -219,6 +219,54 @@ def _json(value):
     return json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
 
+def _layer_input_contract(inspection, inventory, resolved, preflight_text, profile_text):
+    """Carry measured input geometry into later layer analysis without deciding
+    model compatibility or equating a raw tile with the not-yet-rendered mosaic."""
+    acquisition = inspection['acquisition']
+    contract = acquisition.get('acquisition_contract')
+    return {
+        'schema_version': 1,
+        'kind': 'layer_input_contract',
+        'native_image_size': list(inventory['image_size']),
+        'size_source': 'selected_raw_image_headers',
+        'source_binding': {
+            'inspection_fingerprint': inspection['fingerprint'],
+            'input_inventory_fingerprint': inventory['fingerprint'],
+            'selected_tile_count': inventory['tile_count'],
+            'layout_mode': inspection['layout_mode'],
+            'acquisition_source_files': acquisition.get('source_files', []),
+            'preflight_file': 'preflight.json',
+            'preflight_sha256': hashlib.sha256(preflight_text.encode('utf-8')).hexdigest(),
+        },
+        'stitch_profile': {
+            'file': 'profile.json',
+            'name': resolved['profile']['name'],
+            'sha256': hashlib.sha256(profile_text.encode('utf-8')).hexdigest(),
+            'image_size': list(resolved['profile']['image_size']),
+            'scale_div': resolved['scale_div'],
+            'out_scale': resolved['out_scale'],
+            'full': resolved['full'],
+        },
+        'acquisition_verification': {
+            'metadata_present': acquisition['present'],
+            'session_id': acquisition.get('session_id'),
+            'verification_status': contract.get('verification_status', 'not_recorded') if isinstance(contract, dict) else 'not_recorded',
+            'acquisition_contract': contract,
+            'calibration_status': acquisition.get('calibration_status', 'unverified_for_current_mode'),
+            'physical_coverage_verified': acquisition.get('physical_coverage_verified', False),
+        },
+        'inference_geometry_status': 'needs_model_and_scale_check',
+        'inference_input_image_size': None,
+        'model_selected': False,
+        'inference_executed': False,
+        'stitch_executed': False,
+        'resize_applied_by_handoff': False,
+        'note': ('Native dimensions describe the selected raw tiles. Verify the reference acquisition mode, '
+                 'applicable checkpoint and actual field of view before layer inference. The selected mosaic '
+                 'render scale is recorded separately; no final mosaic size or model compatibility is inferred.'),
+    }
+
+
 def _prepare(body):
     fingerprint = _text(body, "fingerprint", required=True, limit=64)
     if len(fingerprint) != 64 or any(char not in "0123456789abcdef" for char in fingerprint):
@@ -242,6 +290,7 @@ def _prepare(body):
     preflight_path = bundle / "preflight.json"
     argv_path = bundle / "argv.json"
     instructions_path = bundle / "instructions.txt"
+    layer_contract_path = bundle / "layer_input_contract.json"
     argv = [sys.executable, str(ROOT / "run_stitch.py"), "--data", str(data_dir),
             "--work", str(bundle / "work"), "--out", str(bundle / "mosaic.png"),
             "--stitch-profile", str(profile_path), "--scale-div", str(resolved["scale_div"]),
@@ -252,6 +301,10 @@ def _prepare(body):
         argv.append("--full")
     command, shell = _command(argv)
     warnings = list(checked["warnings"]) + list(resolved["warnings"])
+    layer_next_step = ("Layer input geometry is recorded in layer_input_contract.json; verify the reference acquisition mode, "
+                       "applicable checkpoint and actual field of view before inference / "
+                       "层数输入尺寸已保存至 layer_input_contract.json；参考采集模式、适用权重与实际视野需核对。")
+    warnings.append(layer_next_step)
     preflight = {
         "schema_version": 1, "status": "profile_prepared", "stitch_executed": False,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -278,15 +331,20 @@ def _prepare(body):
     )
     if inspection["acquisition"]["present"]:
         _write_new(bundle / "acquisition_metadata.json", _json(inspection["acquisition"]))
-    _write_new(profile_path, _json(resolved["profile"]))
+    profile_text = _json(resolved["profile"])
+    preflight_text = _json(preflight)
+    layer_contract = _layer_input_contract(inspection, checked["inventory"], resolved, preflight_text, profile_text)
+    _write_new(profile_path, profile_text)
     if checked["layout"] is not None:
         _write_new(bundle / "layout.json", _json(checked["layout"]))
     _write_new(argv_path, _json(argv))
     _write_new(instructions_path, instructions)
-    _write_new(preflight_path, _json(preflight))
+    _write_new(preflight_path, preflight_text)
+    _write_new(layer_contract_path, _json(layer_contract))
     return {"ok": True, "status": "profile_prepared", "stitch_executed": False,
             "bundle_dir": str(bundle), "profile_path": str(profile_path),
             "preflight_path": str(preflight_path), "argv_path": str(argv_path),
+            "layer_input_contract_path": str(layer_contract_path), "layer_next_step": layer_next_step,
             "instructions_path": str(instructions_path), "command": command,
             "command_shell": shell, "profile": resolved["profile"],
             "inspection": inspection, "warnings": warnings}

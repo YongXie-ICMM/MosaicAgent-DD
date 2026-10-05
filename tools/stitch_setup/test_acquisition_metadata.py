@@ -192,3 +192,26 @@ def test_selected_grid_cannot_exceed_recorded_saved_count(acquisition):
     save(folder, session, captures)
     with pytest.raises(ValueError, match="photos_saved"):
         inspect(folder)
+
+
+@pytest.mark.parametrize('verification_status', ['verified_received_frame', 'pending_pre_scan'])
+def test_layer_handoff_preserves_acquisition_evidence_without_certifying_model(acquisition, verification_status):
+    folder, session, captures = acquisition
+    session['scan_config']['acquisition_contract']['verification_status'] = verification_status
+    save(folder, session, captures)
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    result = service.dispatch('prepare', prepare_body(folder))
+    handoff = json.loads(Path(result['layer_input_contract_path']).read_text())
+    preflight = json.loads(Path(result['preflight_path']).read_text())
+    assert handoff['native_image_size'] == [1920, 1080]
+    verification = handoff['acquisition_verification']
+    assert verification['metadata_present'] is True
+    assert verification['session_id'] == 'synthetic-test'
+    assert verification['verification_status'] == verification_status
+    assert verification['acquisition_contract'] == session['scan_config']['acquisition_contract']
+    assert verification['calibration_status'] == 'unverified_for_current_mode'
+    assert verification['physical_coverage_verified'] is False
+    assert handoff['source_binding']['acquisition_source_files'] == preflight['inspection']['acquisition']['source_files']
+    assert handoff['inference_geometry_status'] == 'needs_model_and_scale_check'
+    assert handoff['model_selected'] is False
+    assert before == {p.name: p.read_bytes() for p in folder.iterdir()}

@@ -41,7 +41,7 @@
       invalidInspection: '检查接口未返回完整的图块信息，请更新或重启本机工作台后重试。', invalidPrepared: '配置接口未返回完整的命令信息，请检查本机工作台日志。',
       inspectDone: '文件检查完成。请根据实际采集记录选择配置。', pathsChanged: '路径已改变，请重新检查文件夹。', settingsChanged: '参数已改变，请重新保存配置并生成命令。原先保存的配置包仍保留在磁盘上。',
       'flat-grid': '图块文件名网格', 'named-columns': '命名的列文件夹', 'provided-layout': '指定的布局 JSON',
-      bundle_dir: '配置包文件夹', profile_path: '几何配置 JSON', preflight_path: '检查记录', argv_path: '精确命令参数 JSON', instructions_path: '运行说明', shellLabel: '命令格式'
+      bundle_dir: '配置包文件夹', profile_path: '几何配置 JSON', preflight_path: '检查记录', argv_path: '精确命令参数 JSON', layer_input_contract_path: '层数分析输入记录', instructions_path: '运行说明', shellLabel: '命令格式'
     },
     en: {
       skip: 'Skip to setup', setupTitle: 'STITCH SETUP', back: 'Back to workbench', eyebrow: 'RAW TILES → STITCHING PROFILE',
@@ -82,7 +82,7 @@
       invalidInspection: 'The inspection API did not return complete tile information. Update or restart the local workbench and retry.', invalidPrepared: 'The profile API did not return a complete command. Check the local workbench log.',
       inspectDone: 'Files inspected. Choose a profile using the actual acquisition record.', pathsChanged: 'Paths changed. Inspect the folder again.', settingsChanged: 'Settings changed. Save again to generate an updated command. The previous bundle remains on disk.',
       'flat-grid': 'Grid tile names', 'named-columns': 'Named column folders', 'provided-layout': 'Provided layout JSON',
-      bundle_dir: 'Bundle folder', profile_path: 'Geometry profile JSON', preflight_path: 'Inspection record', argv_path: 'Exact argument JSON', instructions_path: 'Run instructions', shellLabel: 'Command format'
+      bundle_dir: 'Bundle folder', profile_path: 'Geometry profile JSON', preflight_path: 'Inspection record', argv_path: 'Exact argument JSON', layer_input_contract_path: 'Layer-analysis input record', instructions_path: 'Run instructions', shellLabel: 'Command format'
     }
   };
   const $ = id => document.getElementById(id);
@@ -195,7 +195,7 @@
     $('copyStatus').textContent = copyStatus ? t(copyStatus) : '';
     if (!prepared) return;
     $('savedPaths').replaceChildren();
-    ['bundle_dir', 'profile_path', 'preflight_path', 'argv_path', 'instructions_path'].forEach(key => {
+    ['bundle_dir', 'profile_path', 'preflight_path', 'layer_input_contract_path', 'argv_path', 'instructions_path'].forEach(key => {
       if (!prepared[key]) return;
       const row = document.createElement('div');
       const term = document.createElement('dt');

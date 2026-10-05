@@ -2,7 +2,7 @@
 
 [Main entry](../README.md)
 
-The Git repository contains the submission-scoped software. The [GitHub release](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/latest) provides `MosaicAgent-DD-student-complete.zip` with code and assets together. The student trial distribution adds the original example images and the actual checkpoint used for inference:
+The Git repository contains the submission-scoped software. The complete student trial distribution adds the original example images and the actual checkpoint used for inference. Download `MosaicAgent-DD-student-complete.zip` from the [release assets](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/latest). The package contains:
 
 ```text
 MosaicAgent-DD/
@@ -16,7 +16,7 @@ MosaicAgent-DD/
 
 The manifest binds each source image and the checkpoint to SHA-256 values. The launcher verifies the assets before loading the model. Model files are trusted research inputs: the inherited PyTorch loader supports legacy checkpoints and must not be used with untrusted downloaded files. Legacy spectral pickle files have the same trusted-input restriction.
 
-The example images retain their original bytes and pixels; they have not been resized from older 3840 × 2160 records. Their scan-grid indices and session metadata were not supplied, so they are not an established adjacent-pair stitching test. The checkpoint is the previously validated 0409 model. In this actual trial it labels extensive apparent substrate as monolayer, so its outputs on the current images are not accepted measurements. A separately inspected 0815 model also shows visible disagreement and tile artefacts; it has not been substituted based on appearance. Confirm sample/substrate and preprocessing evidence before selecting a replacement.
+The example images retain their original bytes and pixels; they have not been resized from older 3840 × 2160 records. Their scan-grid indices and session metadata were not supplied, so they are not an established adjacent-pair stitching test. The checkpoint is the unchanged 0409 model previously checked for executable inference. The native and scale-adjusted trials both ran. Their comparison did not resolve the visual concern that broad apparent-substrate areas are labelled monolayer; there are no independent reference labels or quantified accuracy results for these two images. These outputs are not accepted measurements. The user confirmed these samples are on **260 nm SiO₂/Si**, historically labelled “276 nm”. This correction is specific to the supplied examples, not a blanket rewrite of spectroscopy reference calibrations. The 0815 checkpoint belongs to a 70 nm sample configuration and is not used in the bundle. Review model training conditions, preprocessing and acquisition colour settings; the visual concern has not been attributed to any single cause. The user subsequently confirmed on 2026-10-05 that only the camera resolution changed from 3840 × 2160 to 1920 × 1080, while the objective, magnification and physical field of view remained unchanged. The asset manifest records this confirmation under `capture_geometry`, including its source. This operator confirmation supports the pixel-scale mapping but is not an independent micrometre calibration. The current bundle automatically uses native 256/32 tiles/overlap resampled to the unchanged 512-pixel model window; only legacy assets without a `capture_geometry` field retain the native 512/64 baseline. If that field is present but unconfirmed or invalid, the run stops with an error rather than silently falling back. The earlier diagnostic comparison used an assumed-field-of-view hypothesis at the time; the subsequent confirmation does not turn those predictions into validated measurements. See [Resolution and inference](RESOLUTION_AND_INFERENCE.md) for the recorded geometry and limitations.
 
 The trial uses two current 1920 × 1080 optical microscope fields, not an independent test set. Its purpose is to show that the supplied checkpoint and current code execute and produce reviewable layer masks. It does not establish classification accuracy, cross-batch generalization, or an agent benefit. Original data and historical predictions are retained; each run creates a new output directory.
 
@@ -26,7 +26,7 @@ All original experimental archives, full scan grids, historical annotations and 
 
 1. Preserve the source archive or scan folder and session metadata.
 2. Record the sample/batch ID and the acquisition settings. Confirm real physical calibration separately from image dimensions.
-3. Bind stitching settings to the actual raw grid using the workbench setup tool.
+3. Bind stitching settings to the actual raw grid using the workbench setup tool. Keep `layer_input_contract.json`, `profile.json` and `preflight.json` together; they record native tile dimensions and hash-bound handoff metadata, not proof of a completed mosaic or applicable model.
 4. Use an explicit checkpoint, inference tile size, overlap, filler/support convention and counting denominator. Training crop size and inference tile size are distinct settings.
 5. Save predictions, logs, configuration and review decisions together. State any exclusion region and its numerator/denominator effect.
 

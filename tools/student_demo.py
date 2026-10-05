@@ -171,7 +171,8 @@ def result_record(result):
     return asdict(result)
 
 
-def run_demo(root: Path = REPO) -> Path:
+def run_demo(root: Path = REPO, *, inference_geometry=None, comparison_only=False,
+             use_recorded_geometry=True) -> Path:
     root = root.resolve()
     assets = validate_assets(root)
     from PIL import Image
@@ -182,6 +183,40 @@ def run_demo(root: Path = REPO) -> Path:
                 if image.size != (sample["width"], sample["height"]):
                     raise DemoError("Image dimensions differ from the manifest / 原图尺寸与清单不一致")
                 image.verify()
+    config = dict(CONFIG)
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    if use_recorded_geometry and inference_geometry is None and "capture_geometry" in assets["manifest"]:
+        from flakepipeline.inference_geometry import plan_inference_geometry
+        capture = assets["manifest"]["capture_geometry"]
+        if not isinstance(capture, dict) or capture.get("same_physical_fov_confirmed") is not True \
+                or not isinstance(capture.get("confirmation_source"), str) or not capture["confirmation_source"].strip():
+            raise DemoError("Confirm the recorded field of view before scale adaptation / 请先核对并记录实际视野")
+        sizes = {(row["width"], row["height"]) for row in assets["samples"]}
+        if len(sizes) != 1:
+            raise DemoError("Mixed resolutions require separate geometry plans / 不同分辨率需分开配置")
+        inference_geometry = plan_inference_geometry(list(next(iter(sizes))),
+            assets["manifest"].get("inference_reference_capture_size"),
+            same_physical_fov_confirmed=True, model_tile=CONFIG["tile"], model_overlap=CONFIG["overlap"],
+            provenance={"scope": "operator_confirmed_capture_mode_scale_mapping",
+                        "observed_size_source": "Decoded and hash-verified supplied camera images",
+                        "reference_size_source": "Asset manifest previous inference capture mode, not training crop",
+                        "fov_confirmation_source": capture["confirmation_source"]})
+    if inference_geometry is not None:
+        from flakepipeline.inference_geometry import plan_inference_geometry
+        required = {"observed_native_size", "model_reference_size", "same_physical_fov_confirmed"}
+        if not isinstance(inference_geometry, dict) or not required.issubset(inference_geometry):
+            raise DemoError("Incomplete geometry plan / 识别尺度配置不完整")
+        expected = plan_inference_geometry(
+            inference_geometry["observed_native_size"], inference_geometry["model_reference_size"],
+            same_physical_fov_confirmed=inference_geometry["same_physical_fov_confirmed"],
+            model_tile=CONFIG["tile"], model_overlap=CONFIG["overlap"],
+            provenance=inference_geometry.get("provenance"))
+        if expected != inference_geometry or not expected["adapted_mode_allowed"]:
+            raise DemoError("Geometry is not ready / 识别尺度尚未核对")
+        if any([row["width"], row["height"]] != expected["observed_native_size"] for row in assets["samples"]):
+            raise DemoError("Actual images do not match the geometry / 实际照片尺寸与识别配置不一致")
+        config["inference_geometry"] = expected
     segment, stats = load_stages()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:8]
     run = root / "outputs" / "demo" / stamp
@@ -189,7 +224,7 @@ def run_demo(root: Path = REPO) -> Path:
     os.environ.setdefault("MPLCONFIGDIR", str(run / ".cache" / "matplotlib"))
     review_required = assets["manifest"].get("review_required", False)
     manifest = {"schema_version": 1, "kind": "local_layer_number_demo", "status": "running",
-                "created_at_utc": datetime.now(timezone.utc).isoformat(), "configuration": CONFIG,
+                "created_at_utc": datetime.now(timezone.utc).isoformat(), "configuration": config,
                 "assets_manifest_sha256": assets["manifest_sha256"],
                 "archive_sha256": assets["archive_sha256"],
                 "weights": {"path": assets["manifest"]["weights"]["path"], "sha256": assets["weights_sha256"]},
@@ -201,6 +236,14 @@ def run_demo(root: Path = REPO) -> Path:
                 "interpretation": "Predicted layer labels; not physical ground truth or instance boundaries.",
                 "samples": []}
     manifest_path = run / "results" / "run_manifest.json"
+    manifest["substrate"] = assets["manifest"].get("substrate", {})
+    manifest["inference_geometry"] = inference_geometry
+    manifest["capture_geometry_confirmation"] = assets["manifest"].get("capture_geometry")
+    if comparison_only or (inference_geometry and inference_geometry.get("provenance", {}).get("scope") == "provisional_same_fov_hypothesis_for_comparison"):
+        manifest["comparison_only"] = True
+        manifest["review_required"] = True
+        review_required = True
+        manifest["review_note"] = "Scale comparison only. Independent physical pixel calibration and layer accuracy are not established."
     atomic_json(manifest_path, manifest)
     try:
         for index, sample in enumerate(assets["samples"], 1):
@@ -216,7 +259,7 @@ def run_demo(root: Path = REPO) -> Path:
                     raise DemoError("Original image changed after preflight / 预检后原图发生变化")
                 image_path = Path(temp) / (sample["sample_id"] + PurePosixPath(sample["member"]).suffix)
                 image_path.write_bytes(raw)
-                context = dict(CONFIG, work=output, sample=sample["sample_id"], weights=str(assets["weights"]))
+                context = dict(config, work=output, sample=sample["sample_id"], weights=str(assets["weights"]))
                 segmented = segment(context, image_path)
                 counted = stats(context, segmented.data["mask"], segmented.data["valid_mask"], exclusion_path=None)
             preview = counted.data.get("layer_map_preview")
@@ -250,6 +293,41 @@ def run_demo(root: Path = REPO) -> Path:
             print("Review note / 审核说明: " + str(manifest["review_note"]), flush=True)
     print("Open 03_open_workbench to compare originals and layer maps. / 双击03_open_workbench查看原图和层数预测。", flush=True)
     return run
+
+
+def compare_scale(root: Path = REPO) -> Path:
+    """Compare a stated same-FOV hypothesis; do not accept it as calibration."""
+    root = root.resolve()
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from flakepipeline.inference_geometry import plan_inference_geometry
+    assets = validate_assets(root)
+    sizes = {(row["width"], row["height"]) for row in assets["samples"]}
+    if len(sizes) != 1:
+        raise DemoError("Mixed native resolutions need separate comparisons / 不同分辨率需要分开比较")
+    reference = assets["manifest"].get("inference_reference_capture_size")
+    capture = assets["manifest"].get("capture_geometry", {})
+    confirmed = isinstance(capture, dict) and capture.get("same_physical_fov_confirmed") is True \
+        and isinstance(capture.get("confirmation_source"), str) and bool(capture["confirmation_source"].strip())
+    geometry = plan_inference_geometry(list(next(iter(sizes))), reference,
+        same_physical_fov_confirmed=True, model_tile=CONFIG["tile"], model_overlap=CONFIG["overlap"],
+        provenance={"scope": "confirmed_fov_scale_comparison" if confirmed else "provisional_same_fov_hypothesis_for_comparison",
+                    "observed_size_source": "Decoded and hash-verified supplied camera images",
+                    "reference_size_source": "Recorded previous 0409 inference capture mode, not training crop size",
+                    "fov_confirmation_source": capture["confirmation_source"] if confirmed else "ASSUMED ONLY for this comparison; not instrument-confirmed"})
+    if not geometry["adapted_mode_allowed"]:
+        raise DemoError("Cannot form this scale comparison / 无法生成尺度对照: " + ", ".join(geometry["reasons"]))
+    print("Comparison only; field-of-view record is retained; accuracy is not established. / 仅作对照，保留实际视野确认记录；尚未验证准确率。", flush=True)
+    native = run_demo(root, comparison_only=True, use_recorded_geometry=False)
+    adapted = run_demo(root, inference_geometry=geometry, comparison_only=True)
+    record = {"status": "comparison_only_requires_review", "geometry": geometry,
+              "direct_run": native.relative_to(root).as_posix(),
+              "adapted_run": adapted.relative_to(root).as_posix(),
+              "selected_for_measurement": False, "physical_stage_motion": "unchanged"}
+    path = root / "outputs/demo/scale_comparison.json"
+    atomic_json(path, record)
+    print("Scale comparison / 尺度对照: " + str(path), flush=True)
+    return path
 
 
 def prepare_workbench_config(root: Path = REPO) -> Path:
@@ -297,12 +375,14 @@ def open_workbench(root: Path = REPO, no_browser=False) -> int:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("run", "check", "workbench"), nargs="?", default="run")
+    parser.add_argument("action", choices=("run", "check", "workbench", "compare-scale"), nargs="?", default="run")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.action == "run":
             run_demo()
+        elif args.action == "compare-scale":
+            compare_scale()
         elif args.action == "check":
             assets = validate_assets(REPO)
             print(f"Verified {len(assets['samples'])} images and supplied checkpoint; no model loaded. / 原图与权重校验通过，未加载模型。")

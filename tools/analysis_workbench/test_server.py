@@ -240,6 +240,69 @@ class WorkbenchTests(unittest.TestCase):
         self.run.assert_not_called()
         self.popen.assert_not_called()
 
+    def test_manifest_review_flag_is_shown_as_human_review_without_mutation(self):
+        archive, member = self.source_archive()
+        path = self.image_manifest([{
+            "sample_id": "camera_1080p_01", "archive": str(archive), "member": member,
+            "source_image_size": [1920, 1080], "outputs": {},
+        }])
+        manifest = json.loads(path.read_text())
+        manifest.update(review_required=True, review_note="Please compare against the original image.",
+                        source_run="current_camera_trial",
+                        weights={"path": "weights/model_fixture.pth", "sha256": "a" * 64})
+        path.write_text(json.dumps(manifest))
+        before = path.read_bytes()
+        state = self.workbench.state()
+        self.assertEqual(len(state["warnings"]), 1)
+        warning = state["warnings"][0]
+        self.assertIn("human review", warning["en"])
+        self.assertIn("not an automated error verdict", warning["en"])
+        self.assertIn(manifest["review_note"], warning["en"])
+        self.assertIn("人工复核", warning["zh"])
+        for tool in ("images", "layers"):
+            original = next(a for a in state["artifacts"] if a["tool"] == tool and a["role"] == "original")
+            self.assertEqual(original["case_id"], "camera_1080p_01")
+            self.assertEqual(original["case_label"]["en"], "camera_1080p_01 [1920 × 1080]")
+            self.assertEqual(original["image_size"], [1920, 1080])
+            self.assertEqual(original["source_run"], "current_camera_trial")
+            details = " ".join(n["en"] for n in next(t for t in state["tools"] if t["id"] == tool)["details"])
+            for token in ("current_camera_trial", "1920 × 1080", "model_fixture.pth", "aaaaaaaaaaaa"):
+                self.assertIn(token, details)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(self.workbench.events(), [])
+        self.run.assert_not_called()
+        self.popen.assert_not_called()
+
+    def test_review_note_without_true_flag_does_not_invent_warning(self):
+        path = self.image_manifest([])
+        for flag in (False, None, "true", 1):
+            path.write_text(json.dumps({"samples": [], "review_required": flag, "review_note": "Unflagged record"}))
+            self.workbench.collect()
+            self.assertEqual(self.workbench.errors, [])
+
+    def test_invalid_dimensions_are_not_presented_as_image_size(self):
+        archive, member = self.source_archive()
+        for size in ([True, 1080], [0, 1080], [1920], "1920x1080"):
+            self.image_manifest([{"sample_id": "case", "archive": str(archive), "member": member,
+                                  "source_image_size": size, "outputs": {}}])
+            original = next(a for a in self.workbench.collect() if a["role"] == "original")
+            self.assertNotIn("image_size", original)
+            self.assertEqual(original["case_label"]["en"], "case")
+
+    def test_run_identity_and_review_flags_reset_when_data_changes(self):
+        path = self.image_manifest([])
+        path.write_text(json.dumps({"samples": [], "review_required": True, "run_id": "run_one"}))
+        self.workbench.collect()
+        self.assertTrue(self.workbench.errors)
+        path.write_text(json.dumps({"samples": [], "run_id": "run_two"}))
+        self.workbench.collect()
+        self.assertEqual(self.workbench.errors, [])
+        self.assertIn("run_two", self.workbench.inference_details[0]["en"])
+        self.assertNotIn("run_one", str(self.workbench.inference_details))
+        path.unlink()
+        self.workbench.collect()
+        self.assertEqual(self.workbench.inference_details, [])
+
     def test_removed_views_fail_without_launch_or_event(self):
         before = self.workbench.events()
         for view in ("outlines", "layers", "instances", "touching"):

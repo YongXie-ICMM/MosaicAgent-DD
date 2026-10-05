@@ -1,0 +1,31 @@
+# Claude handoff: close the remaining layer-inference gap
+
+Date: 2026-10-05. Start with [README](../README.md) and [resolution mapping](RESOLUTION_AND_INFERENCE.md).
+
+## Current state
+
+- This is the clean public DD repository, `YongXie-ICMM/MosaicAgent-DD`. DD covers acquisition, stitching, semantic layer number and optical spectroscopy. Do not add domain/instance annotation or twist-angle inference.
+- The complete release ZIP contains two original 1920 × 1080 images, the unchanged `model_0409_all.pth`, an asset manifest and three student launchers. Ordinary GitHub source archives do not contain these assets.
+- The user confirmed that only resolution changed from 3840 × 2160 to 1920 × 1080. Objective, magnification and physical field of view stayed the same. The current samples are on 260 nm SiO₂/Si, historically labelled 276 nm. Do not substitute the 70 nm / 0815 configuration.
+- Current `02_run_layer_demo` reads the recorded confirmation and decoded image dimensions. It uses native 256 × 256 crops with 32-pixel overlap, bilinearly resamples them to 512 × 512 for the unchanged model, and maps labels back by nearest-neighbour resampling. Output labels and counts remain in native 1920 × 1080 coordinates. Original pixels are not edited.
+- A source-bound `layer_input_contract.json` links stitching setup to inference. The CLI verifies its profile/preflight hashes and geometry. Reduced mosaic output (`out_scale != 1`) currently blocks this mapping; no implicit full-mosaic coordinate conversion is implemented.
+- Native 512/64 and adapted 256/32 trials both completed on the supplied two images. Both still label broad apparent-substrate regions as 1L. This is an unresolved visual concern, not a quantified accuracy result. No independent labels have been supplied for these two images.
+- Independent local diagnostics compared three inference implementations on identical crops: their class labels agreed exactly. The historical L18 result was also reproduced except for a small partial-bottom-tile padding difference. Do not blame a new wrapper or replace preprocessing without a controlled comparison.
+- No external Kimi calls, new training, or instrument motion was performed for this release. The scanner runtime is byte-identical to the recorded 954-1080p-A1 export; driver installation and instrument acceptance remain separate.
+
+## Next work, in priority order
+
+1. **Diagnose the classification issue before broad refactoring.** Reproduce both inference modes with the shipped checkpoint and preserve the manifests. Inspect channel order, normalization, actual checkpoint class mapping and available training provenance. Show original and prediction separately. Do not swap class labels or colour-normalize until outputs look plausible without independent evidence.
+2. **Separate scale from acquisition appearance.** Ask the operator for the same fixed field saved at both resolutions with unchanged exposure, white balance, illumination, focus and microscope settings. A software-downsampled historical 4K field is a useful controlled preprocessing test, but must remain labelled synthetic, not a new acquisition. Compare native and adapted crops on the same physical objects. Retain all originals.
+3. **Get a small independent review.** Have the supervisor mark a few clearly bare-substrate regions and isolated layer candidates on these actual new images. Use only supported reference labels; record ambiguous regions separately. Evaluate substrate/foreground confusion first. Do not train or tune on those regions and then call the same regions a held-out test. If retraining is needed, propose it as a separate evidenced change.
+4. **Complete one small acquisition-to-analysis check.** On the instrument, collect a 3 × 3 scan using the existing approved motion logic. Save all images, session/events, camera mode and physical settings. Inspect adjacent overlaps, produce a full-resolution mosaic, retain the stitching contract, and verify native-coordinate inference and statistics. This pair of example images is not an established adjacent stitching pair.
+
+Only after these checks should the scale choice become a simplified GUI option for arbitrary new datasets. Pixel size can prepare a geometry candidate; it must not silently select weights, rewrite calibration, or accept classifications.
+
+## Copyable prompt
+
+> Continue work in the existing MosaicAgent-DD repository. Read README.md, docs/RESOLUTION_AND_INFERENCE.md, docs/DATA_AND_REPRODUCIBILITY.md and this handoff before editing. Inspect git status and preserve unrelated changes. The owner confirmed unchanged physical FOV when resolution changed from 3840 × 2160 to 1920 × 1080. Current demo metadata now automatically selects native 256/32 crops/overlap, resampled to the unchanged 512-pixel model window; output labels return to native coordinates. Do not change network architecture or weights merely because image dimensions changed. First reproduce and diagnose the remaining apparent-substrate-to-monolayer predictions with the fixed 0409 checkpoint, using controlled comparisons and independent reference regions. Distinguish synthetic downsampling, operator-confirmed geometry, physical calibration and validated classification accuracy. Preserve the student-validated scanner runtime, existing recovery logic, source images, historical outputs and manifests. Do not refactor directories, restore domain/instance tools, replace the 260 nm sample model with a 70 nm model, auto-exclude inconvenient regions or call external models without a defined need and authorized data scope. Propose small evidence-backed fixes, run relevant tests, retain before/after outputs, and give the supervisor a short Chinese explanation plus simple student steps. Inspect current GitHub release and local tests rather than assuming remote CI passed.
+
+## Student responsibilities
+
+Students provide same-field acquisition pairs, a small scan with its logs, and screenshots identifying disagreements. The supervisor establishes supported reference labels. Algorithm changes, model selection, controlled comparisons and GitHub publication belong to the developer and supervisor; students are not asked to write agents.

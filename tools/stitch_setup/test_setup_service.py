@@ -89,7 +89,7 @@ def test_prepare_creates_unique_bound_bundles_without_touching_sources(grid):
     bundle = Path(first["bundle_dir"])
     assert bundle.parent == grid.parent / "_stitch_results"
     assert {path.name for path in bundle.iterdir()} == {
-        "profile.json", "preflight.json", "argv.json", "instructions.txt"}
+        "profile.json", "preflight.json", "layer_input_contract.json", "argv.json", "instructions.txt"}
     assert not (bundle / "work").exists()
     assert not (bundle / "mosaic.png").exists()
     argv = json.loads(Path(first["argv_path"]).read_text())
@@ -273,3 +273,36 @@ def test_shell_arguments_roundtrip_including_quotes_and_metacharacters(monkeypat
 def test_invalid_requests_have_actionable_errors(action, body):
     with pytest.raises(ValueError):
         service.dispatch(action, body)
+
+
+@pytest.mark.parametrize('native_size', [(1920, 1080), (3840, 2160)])
+def test_layer_handoff_keeps_native_headers_and_selected_render_scale_separate(grid, native_size):
+    for path in grid.iterdir():
+        path.write_bytes(png(native_size))
+    before = hashes(grid)
+    body = preparation(grid, profile_kind='custom', nominal_vectors=[0, 900, 1750, 0],
+                       calibration_note='Synthetic calibration for contract propagation only.')
+    result = service.dispatch('prepare', body)
+    contract = json.loads(Path(result['layer_input_contract_path']).read_text())
+    preflight = json.loads(Path(result['preflight_path']).read_text())
+    assert contract['native_image_size'] == list(native_size)
+    assert contract['size_source'] == 'selected_raw_image_headers'
+    assert contract['stitch_profile']['image_size'] == list(native_size)
+    assert contract['stitch_profile']['out_scale'] == 0.125
+    assert contract['inference_input_image_size'] is None  # future mosaic size is not a tile size
+    assert contract['inference_geometry_status'] == 'needs_model_and_scale_check'
+    assert contract['model_selected'] is False
+    assert contract['inference_executed'] is False
+    assert contract['stitch_executed'] is False
+    assert contract['resize_applied_by_handoff'] is False
+    assert contract['acquisition_verification']['metadata_present'] is False
+    assert contract['acquisition_verification']['verification_status'] == 'not_recorded'
+    assert contract['source_binding']['inspection_fingerprint'] == body['fingerprint']
+    assert contract['source_binding']['input_inventory_fingerprint'] == preflight['input_inventory']['fingerprint']
+    assert contract['source_binding']['preflight_sha256'] == hashlib.sha256(Path(result['preflight_path']).read_bytes()).hexdigest()
+    assert contract['stitch_profile']['sha256'] == hashlib.sha256(Path(result['profile_path']).read_bytes()).hexdigest()
+    assert 'layer_input_contract.json' in result['layer_next_step']
+    assert '适用权重' in result['layer_next_step']
+    assert result['layer_next_step'] in result['warnings']
+    assert '--input-preflight' in preflight['argv']
+    assert hashes(grid) == before

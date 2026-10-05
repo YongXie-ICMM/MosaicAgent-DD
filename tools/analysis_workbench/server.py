@@ -155,7 +155,7 @@ class Workbench:
                                words('有一条历史记录无法读取，请保留历史文件。', 'An event could not be read; retain the history file.')})
         return result
 
-    def register(self, path, tool, role, label, case_id='', expected_hash=None, member=None):
+    def register(self, path, tool, role, label, case_id='', expected_hash=None, member=None, *, case_label=None, image_size=None, source_run=None):
         path = self.relocate(path)
         if path is None:
             return None
@@ -166,12 +166,19 @@ class Workbench:
         item = {'id': aid, 'tool': tool, 'role': role, 'label': label, 'case_id': case_id,
                 'url': '/api/artifact/' + aid, 'path': str(path) + (' :: ' + member if member else ''),
                 'mime': mimetypes.guess_type(member or str(path))[0] or 'application/octet-stream'}
+        if case_label is not None:
+            item['case_label'] = case_label
+        if image_size is not None:
+            item['image_size'] = image_size
+        if source_run is not None:
+            item['source_run'] = source_run
         self.artifacts[aid] = {'public': item, 'path': path, 'sha256': expected_hash, 'member': member}
         return item
 
     def collect(self):
         self.artifacts = {}
         self.errors = []
+        self.inference_details = []
         launch_logs = self.runtime / 'scan_launches'
         if launch_logs.is_dir():
             for log in sorted(launch_logs.glob('*.log'))[-5:]:
@@ -198,17 +205,47 @@ class Workbench:
         if manifest_path and manifest_path.is_file():
             try:
                 manifest = read_json(manifest_path)
+                source_run = manifest.get('source_run') or manifest.get('run_id') or run.name
+                if not isinstance(source_run, str):
+                    source_run = run.name
+                source_run = source_run[:300]
+                self.inference_details.append(words('当前识别运行：' + source_run, 'Current inference run: ' + source_run))
+                weight = manifest.get('weights') or manifest.get('checkpoint')
+                if isinstance(weight, dict) and isinstance(weight.get('path'), str):
+                    weight_name = weight['path'].replace('\\', '/').rsplit('/', 1)[-1]
+                    digest = weight.get('sha256')
+                    fingerprint = ' · SHA-256 ' + digest[:12] if isinstance(digest, str) and len(digest) == 64 else ''
+                    self.inference_details.append(words('清单记录的模型：' + weight_name + fingerprint, 'Model recorded in manifest: ' + weight_name + fingerprint))
+                # This flag belongs to the saved review record. It is not a newly
+                # computed image-quality verdict or evidence of model failure.
+                if manifest.get('review_required') is True:
+                    note = manifest.get('review_note')
+                    note = note.strip()[:3000] if isinstance(note, str) else ''
+                    self.errors.append(words(
+                        '本次运行被标记为需要人工复核；这不是工作台自动判错。' + (' 清单备注：' + note if note else ''),
+                        'This run is flagged for human review; this is not an automated error verdict.' + (' Manifest note: ' + note if note else '')))
+                recorded_sizes = set()
                 for sample in manifest.get('samples', [])[:40]:
                     cid = sample['sample_id']
+                    size = sample.get('source_image_size', sample.get('input_size_wh'))
+                    if not (isinstance(size, list) and len(size) == 2 and all(type(v) is int and v > 0 for v in size)):
+                        size = None
+                    if size:
+                        recorded_sizes.add(tuple(size))
+                    label = cid + (f' [{size[0]} × {size[1]}]' if size else '')
+                    metadata = {'case_label': words(label, label), 'image_size': size, 'source_run': source_run}
                     # Both review steps use the same saved inference evidence. No
                     # additional program or model is started by either action.
                     for tool in ('images', 'layers'):
-                        self.register(sample['archive'], tool, 'original', words(cid + ' 原图', cid + ' original'), cid,
-                                      sample.get('member_sha256'), sample['member'])
+                        self.register(sample['archive'], tool, 'original', words(label + ' 原图', label + ' original'), cid,
+                                      sample.get('member_sha256'), sample['member'], **metadata)
                         for filename, role in [('mask_color.png', 'prediction'), ('overlay_full.jpg', 'overlay')]:
                             self.register(run / 'results' / cid / filename, tool, role,
-                                          words(cid + (' 层数预测' if role == 'prediction' else ' 叠加'), cid + ' ' + role), cid,
-                                          sample.get('outputs', {}).get(filename, {}).get('sha256'))
+                                          words(label + (' 层数预测' if role == 'prediction' else ' 叠加'), label + ' ' + role), cid,
+                                          sample.get('outputs', {}).get(filename, {}).get('sha256'), **metadata)
+                if recorded_sizes:
+                    dimensions = ', '.join(f'{w} × {h}' for w, h in sorted(recorded_sizes))
+                    self.inference_details.append(words('清单记录的原图尺寸：' + dimensions + ' 像素', 'Source image sizes recorded in manifest: ' + dimensions + ' pixels'))
                 for tool in ('images', 'layers'):
                     self.register(manifest_path, tool, 'data', words('识别参数与来源记录', 'Inference parameters and provenance'))
             except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -274,12 +311,12 @@ class Workbench:
                      dict(id='images', available=available['images'], launchable=available['images'], status='review_available' if available['images'] else 'needs_setup',
                           status_note=words('查看已保存的原图、预测和来源；尚未运行新的拼接。', 'Review saved originals, predictions and provenance; no new stitching has run.'),
                           primary_label=words('查看图像结果', 'Review image results'), github_url=MOSAIC_URL,
-                          guide_url=MOSAIC_URL + '/blob/main/flakepipeline/README.md', revision='', details=[]),
+                          guide_url=MOSAIC_URL + '/blob/main/flakepipeline/README.md', revision='', details=list(self.inference_details)),
                      dict(id='layers', available=available['layers'], launchable=available['layers'], status='review_available' if available['layers'] else 'needs_setup',
                           status_note=words('核对已保存的原图、层数预测和统计；此入口不运行新的识别。', 'Review saved originals, layer predictions and statistics; this entry does not run new inference.') if available['layers'] else words('未找到已保存的层数结果；请在设置中连接项目或层数识别结果文件夹。', 'No saved layer results found; connect a project or layer inference results folder in Setup.'),
                           primary_label=words('查看层数结果', 'Review layer-number results'), github_url=MOSAIC_URL,
                           guide_url=MOSAIC_URL + '/blob/main/tools/analysis_workbench/README.md', revision='',
-                          details=[words('核对统计区域、有效像素与分母；预测图不代表独立验证。', 'Check counting support, valid pixels and denominators; a prediction is not independent validation.')]),
+                          details=list(self.inference_details) + [words('核对统计区域、有效像素与分母；预测图不代表独立验证。', 'Check counting support, valid pixels and denominators; a prediction is not independent validation.')]),
                      dict(id='spectra', available=available['spectra'], launchable=available['spectra'], status='review_available' if available['spectra'] else 'needs_setup',
                           status_note=words('核对已有光谱、样品和生长记录；采谱与位置复核仍需实测。', 'Check spectral/sample/growth records; acquisition and position verification require measurements.'),
                           primary_label=words('查看核对资料', 'Review spectral records'), github_url=MOSAIC_URL,

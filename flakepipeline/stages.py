@@ -92,6 +92,32 @@ def _valid_region(photo, filler="white", tol=5):
     return ~bad
 
 
+def _segment_geometry(ctx):
+    """Recompute an optional scale plan; never trust caller-supplied derived fields."""
+    supplied = ctx.get("inference_geometry")
+    if supplied is None:
+        return None
+    if not isinstance(supplied, dict):
+        raise ValueError("inference_geometry must be a complete geometry-plan object")
+    from inference_geometry import plan_inference_geometry
+
+    derived = plan_inference_geometry(
+        supplied.get("observed_native_size"), supplied.get("model_reference_size"),
+        same_physical_fov_confirmed=supplied.get("same_physical_fov_confirmed", False),
+        model_tile=supplied.get("model_tile", 512),
+        model_overlap=supplied.get("model_overlap", 64),
+        provenance=supplied.get("provenance"),
+    )
+    if derived["status"] != "ready" or not derived["adapted_mode_allowed"]:
+        raise ValueError("Inference geometry needs calibration: " + ", ".join(derived["reasons"]))
+    if supplied != derived:
+        raise ValueError("Inference geometry differs from its recomputed plan; prepare it again")
+    for key, planned in (("tile", derived["model_tile"]), ("overlap", derived["model_overlap"])):
+        if key in ctx and (type(ctx[key]) is not int or ctx[key] != planned):
+            raise ValueError(f"Configured {key} conflicts with the inference geometry model window")
+    return derived
+
+
 def stage_segment(ctx, mosaic_path):
     from scipy import ndimage
     import torch
@@ -99,6 +125,7 @@ def stage_segment(ctx, mosaic_path):
     sys.path.insert(0, str(Path(__file__).parent))
     from seg_model import load_segmenter
 
+    geometry = _segment_geometry(ctx)  # Check before loading weights or creating outputs.
     outdir = ctx["work"] / "02_segment"
     outdir.mkdir(parents=True, exist_ok=True)
     mask_p = outdir / f"{ctx['sample']}_mask.npy"
@@ -120,8 +147,11 @@ def stage_segment(ctx, mosaic_path):
     device = ctx.get("device", "cpu")
     model, meta = load_segmenter(ctx["weights"], device=device)
 
-    tile = int(ctx.get("tile", 512))
-    ov = int(ctx.get("overlap", 64))          # overlapped inference suppresses tile-seam artefacts
+    model_tile = geometry["model_tile"] if geometry else int(ctx.get("tile", 512))
+    model_overlap = geometry["model_overlap"] if geometry else int(ctx.get("overlap", 64))
+    tile = geometry["native_tile"] if geometry else model_tile
+    ov = geometry["native_overlap"] if geometry else model_overlap
+    resize = bool(geometry and geometry["model_resize_scale"] != 1.0)
     step = max(1, tile - ov)
     bs = int(ctx.get("batch", 4))
     full = np.zeros((H, W), np.uint8)
@@ -133,20 +163,40 @@ def stage_segment(ctx, mosaic_path):
     n = 0
 
     def flush(batch):
-        """Run inference on a batch of equally sized tiles, then write the predictions
-        back in order. In the overlap only pixels not yet written are filled: whichever
-        tile got there first had the better context (that pixel sits nearer its centre)."""
+        """Infer equal-size source tiles and preserve the first-written overlap policy.
+
+        This merge rule is retained for compatibility; it does not establish which
+        overlapping tile provides the more accurate boundary prediction.
+        """
         if not batch:
             return
-        arr = np.stack([photo[t:b, l:r] for t, b, l, r in batch]).astype(np.float32) / 255.0
-        arr = (arr - MEAN) / STD
-        x = torch.from_numpy(arr).permute(0, 3, 1, 2).contiguous().to(device)
+        if resize:
+            # Pad partial source tiles at their native pixel scale. Resizing every
+            # partial extent directly to model_tile would distort the edge scale.
+            raw = np.zeros((len(batch), tile, tile, 3), dtype=np.uint8)
+            for k, (t, b, l, r) in enumerate(batch):
+                raw[k, :b - t, :r - l] = photo[t:b, l:r]
+            x = torch.from_numpy(raw.astype(np.float32) / 255.0).permute(0, 3, 1, 2).contiguous().to(device)
+            x = F.interpolate(x, size=(model_tile, model_tile), mode="bilinear", align_corners=False)
+            mean = torch.as_tensor(MEAN, device=device).view(1, 3, 1, 1)
+            std = torch.as_tensor(STD, device=device).view(1, 3, 1, 1)
+            x = (x - mean) / std
+        else:
+            # Preserve the existing preprocessing and padding convention exactly.
+            arr = np.stack([photo[t:b, l:r] for t, b, l, r in batch]).astype(np.float32) / 255.0
+            arr = (arr - MEAN) / STD
+            x = torch.from_numpy(arr).permute(0, 3, 1, 2).contiguous().to(device)
         ph, pw = (32 - x.shape[2] % 32) % 32, (32 - x.shape[3] % 32) % 32
         if ph or pw:
             x = F.pad(x, (0, pw, 0, ph))
         with torch.no_grad():
             logit = model(x)["out"]
-        pred = torch.argmax(logit, 1).to(torch.uint8).cpu().numpy()
+        if resize:
+            labels = torch.argmax(logit[:, :, :model_tile, :model_tile], 1)
+            pred = F.interpolate(labels[:, None].to(torch.float32), size=(tile, tile),
+                                 mode="nearest")[:, 0].to(torch.uint8).cpu().numpy()
+        else:
+            pred = torch.argmax(logit, 1).to(torch.uint8).cpu().numpy()
         for k, (t, b, l, r) in enumerate(batch):
             blk = full[t:b, l:r]
             sn = seen[t:b, l:r]
@@ -165,6 +215,9 @@ def stage_segment(ctx, mosaic_path):
         if n and n % 200 == 0:
             print(f"      segment {n}/{len(boxes)} 块  {time.time()-t0:.0f}s", flush=True)
     flush(batch); n += len(batch)
+    uncovered = int((~seen).sum())
+    if uncovered:
+        raise RuntimeError(f"Segmentation left {uncovered} native image pixels uncovered")
     # Force the non-scanned region to zero so it cannot land in any class
     full[~valid] = 0
     np.save(mask_p, full)
@@ -210,6 +263,14 @@ def stage_segment(ctx, mosaic_path):
                   data={"mask": str(mask_p), "valid_mask": str(valid_p),
                         "image_size": [int(W), int(H)], "tiles": n, "tile": tile,
                         "overlap": ov, "border_trim_px": trim,
+                        "requested_model_tile": model_tile, "requested_model_overlap": model_overlap,
+                        "source_crop_tile": tile, "source_crop_overlap": ov,
+                        "inference_geometry": geometry,
+                        "resample_mode": {"input": "bilinear" if resize else "none",
+                                          "labels": "nearest" if resize else "none",
+                                          "partial_tile_padding": "raw_rgb_zero_before_resize" if resize else "normalized_zero_to_multiple_of_32"},
+                        "native_image_pixels": int(H * W), "valid_native_pixels": int(valid.sum()),
+                        "uncovered_native_pixels": uncovered, "counts_coordinate_system": "native_image_pixels",
                         "excluded_non_scan_pct": round(nonscan, 2),
                         "model": meta, "seconds": round(time.time() - t0, 1),
                         "raw_counts": {CLASSES[i][0]: int(c[i]) for i in range(4)}},
