@@ -44,10 +44,42 @@ orientation. The English/Chinese switch changes the GUI language.
    calibration results. Confirm these settings for the actual instrument before
    motion. In particular, `PX_PER_STEP = 25.6` is a legacy default, not a verified
    conversion for the current 1920 × 1080 camera mode.
-5. Run `Auto_Scan/02_start_scan.bat`. This records the console transcript and
-   opens the scanner. Choose **English** in the GUI for an English interface.
-   Connect and confirm the microscope preview and actual 1920 × 1080 image size.
-   Use only one application instance to control the instrument.
+5. On a scan day start with `Auto_Scan/00_white_balance_then_scan.bat`. It first runs
+   `wb_calibrate.py` on a clean bare-substrate field (see below) and then calls the
+   unchanged `02_start_scan.bat`, which records the console transcript and opens the
+   scanner. Choose **English** in the GUI for an English interface. Connect and
+   confirm the microscope preview and actual 1920 × 1080 image size. Use only one
+   application instance to control the instrument.
+
+### Colour balance before scanning (added 2026-10-05)
+
+The layer model was reviewed on a capture mode whose bare substrate reads about
+RGB (219, 171, 170); the 2026-10-05 comparison showed that a different colour balance
+makes it label bare substrate as monolayer ([record](../docs/diagnostics/20261005_colour_balance/README.md)).
+`Auto_Scan/wb_calibrate.py` opens the camera through the same discovery and
+1920 × 1080 frame contract as the scanner (never the stage), measures the bare-substrate
+colour with the analysis estimator, compares it with
+`configs/reference_substrate_colour.json` (± 5 %), and:
+
+- with `--auto` switches auto exposure / auto white balance off and adjusts exposure,
+  then colour temperature and tint (SDK backend) or the white-balance temperature
+  (UVC backend) by measurement-driven secant steps — no direction convention is assumed;
+- without writable controls (HDMI capture card, limited driver) shows a live reading and
+  guidance while the operator adjusts the camera's own menu; press `a` to accept once the
+  reading is within tolerance, `f` to force a record outside tolerance, `q` to quit;
+- records `colour_reference_frame.png`, `camera_colour_settings.json` and every step
+  under `Auto_Scan/colour_calibration/<timestamp>/` (plus `latest.json`), marking
+  `calibrated: false` whenever the reading is outside tolerance, and refuses to record a
+  field that is not clean bare substrate (flatness, one luminance plateau, low spread).
+
+The scanner runtime still only reads and records camera settings; it does not apply
+this file. Settings can be lost when the camera is reopened or power-cycled, so the
+helper runs at the start of each scan day and the analysis colour check on the acquired
+images remains the gate. `python wb_calibrate.py --auto --simulate-camera` is an offline
+self-test with a rendered field; its records go to `colour_calibration/simulation/` and
+are never `latest.json`. Offline tests: `python -m pytest -q acquisition/Auto_Scan/test_wb_calibrate.py`.
+Validation on the instrument (does the backend expose the controls, do the settings
+survive a reconnect) is still pending.
 
 ### Camera backend
 

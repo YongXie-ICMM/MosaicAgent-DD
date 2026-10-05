@@ -28,6 +28,10 @@ kimi_cache/
 /acquisition/Auto_Scan/history/
 /acquisition/Auto_Scan/scan_runs/
 /acquisition/Auto_Scan/drivers/
+/acquisition/Auto_Scan/camera_history/
+/acquisition/Auto_Scan/colour_calibration/
+# Built student bundles
+/dist/
 *.dll
 *.dylib
 *.so
