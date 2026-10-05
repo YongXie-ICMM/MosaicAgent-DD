@@ -1,0 +1,283 @@
+{
+ "schema_version": 1,
+ "date": "2026-10-05",
+ "kind": "controlled_comparison_colour_balance_vs_scale",
+ "question": "Why do the two current 1920x1080 images label broad apparent bare substrate as monolayer in both inference modes?",
+ "fixed": {
+  "checkpoint_sha256": "b771fc9cfaa8fdc1eba9d680d7c3b678890a903ddf12f2073b5a8c957b64a022",
+  "architecture": "flakepipeline/seg_model.py UNet base_c=32, 4 classes, unchanged",
+  "preprocessing": "RGB/255, ImageNet mean/std, unchanged",
+  "pipeline": "MosaicAgent-DD stage_segment logic reproduced bit-exactly: agreement 1.0 with the shipped adapted and native masks of run 20261005T211325 / 20261005T210020"
+ },
+ "images": {
+  "new": [
+   {
+    "sample_id": "camera_1080p_01",
+    "sha256": "a4a6aa3b8c9933e81e9d2f71894255890641726a31b66d8c980056fa6ab45e7c"
+   },
+   {
+    "sample_id": "camera_1080p_02",
+    "sha256": "c711c525a3f80d33dbeb57eb7f0624ebd24ec968bb55d5c3f3d9adbedd758c88"
+   }
+  ],
+  "historical_reference_frames": [
+   {
+    "frame": "L18_down/0028.png",
+    "member_sha256": "6ac75ed4f230157de7a10b99b62b776603bb108eb915290ca33504fab8a1075a"
+   },
+   {
+    "frame": "L34_down/0028.png",
+    "member_sha256": "767e40e349a3259b8522c87d8328493245411a98f79c28cbf76da2172bf4aa0c"
+   }
+  ],
+  "historical_masks": "06_analysis/runs/20260924_0409_inference_examples (same checkpoint; model predictions, not labels)"
+ },
+ "A_shipped_adapted_fractions_bare_2L_1L_TL": {
+  "camera_1080p_01": [
+   0.0226,
+   0.198,
+   0.7618,
+   0.0176
+  ],
+  "camera_1080p_02": [
+   0.0333,
+   0.1112,
+   0.8221,
+   0.0333
+  ]
+ },
+ "B_synthetic_1080p_downsample_of_historical_frames": {
+  "L18_down_0028": {
+   "historical_4k_fractions_bare_2L_1L_TL": [
+    0.7148,
+    0.0095,
+    0.2695,
+    0.0062
+   ],
+   "adapted_256_32_fractions": [
+    0.7149,
+    0.0095,
+    0.2694,
+    0.0061
+   ],
+   "adapted_agreement_with_downsampled_historical_mask": 0.9922,
+   "adapted_substrate_recall": 0.9954,
+   "native_512_64_fractions": [
+    0.7152,
+    0.0092,
+    0.2693,
+    0.0063
+   ],
+   "native_agreement": 0.9919,
+   "native_substrate_recall": 0.9958
+  },
+  "L34_down_0028": {
+   "historical_4k_fractions_bare_2L_1L_TL": [
+    0.2089,
+    0.068,
+    0.4953,
+    0.2278
+   ],
+   "adapted_256_32_fractions": [
+    0.2087,
+    0.068,
+    0.4953,
+    0.228
+   ],
+   "adapted_agreement_with_downsampled_historical_mask": 0.9874,
+   "adapted_substrate_recall": 0.9934,
+   "native_512_64_fractions": [
+    0.2093,
+    0.0721,
+    0.4965,
+    0.222
+   ],
+   "native_agreement": 0.9765,
+   "native_substrate_recall": 0.9921
+  }
+ },
+ "colour_statistics_median_rgb": {
+  "historical_substrate_L18": [
+   221,
+   171,
+   170
+  ],
+  "historical_substrate_L34": [
+   218,
+   171,
+   169
+  ],
+  "historical_1L_L18": [
+   196,
+   129,
+   171
+  ],
+  "historical_2L_L18": [
+   158,
+   93,
+   170
+  ],
+  "new_01_background_predicted_1L": [
+   217,
+   156,
+   181
+  ],
+  "new_01_triangles_predicted_2L": [
+   186,
+   114,
+   188
+  ],
+  "new_02_background_predicted_1L": [
+   223,
+   161,
+   189
+  ],
+  "new_02_triangles_predicted_2L": [
+   188,
+   115,
+   192
+  ],
+  "note": "new background: B +12..+19, G -13..-19 versus historical substrate; new triangles' hue (~298 deg) is closer to historical 2L (~291) than to historical 1L (~322)"
+ },
+ "C_colour_probe_on_new_images": {
+  "reference_substrate_mean_rgb": [
+   219.17999267578125,
+   170.91000366210938,
+   170.02999877929688
+  ],
+  "per_image": {
+   "camera_1080p_01": {
+    "bg_mean": [
+     214.2100067138672,
+     152.41000366210938,
+     181.57000732421875
+    ],
+    "bg_std": [
+     8.859999656677246,
+     11.0600004196167,
+     3.380000114440918
+    ],
+    "gain": [
+     1.0232000350952148,
+     1.121399998664856,
+     0.9363999962806702
+    ],
+    "shipped": [
+     0.0226,
+     0.198,
+     0.7618,
+     0.0176
+    ],
+    "C1_affine_match": [
+     0.7082,
+     0.0092,
+     0.2545,
+     0.0281
+    ],
+    "C2_gain_only": [
+     0.7068,
+     0.0261,
+     0.2531,
+     0.014
+    ]
+   },
+   "camera_1080p_02": {
+    "bg_mean": [
+     220.30999755859375,
+     157.94000244140625,
+     189.32000732421875
+    ],
+    "bg_std": [
+     9.100000381469727,
+     11.09000015258789,
+     3.75
+    ],
+    "gain": [
+     0.9948999881744385,
+     1.0821000337600708,
+     0.8981000185012817
+    ],
+    "shipped": [
+     0.0333,
+     0.1112,
+     0.8221,
+     0.0333
+    ],
+    "C1_affine_match": [
+     0.7795,
+     0.0119,
+     0.1673,
+     0.0414
+    ],
+    "C2_gain_only": [
+     0.7778,
+     0.0299,
+     0.164,
+     0.0283
+    ]
+   }
+  },
+  "method": "per-channel gain = reference mean / new background median (background proxy: pixels predicted 1L); affine (mean/std) and gain-only variants; adapted 256/32->512 inference unchanged"
+ },
+ "D_inverse_gain_on_historical_L18_synthetic_1080p": {
+  "inverse_gain_rgb": [
+   0.9773,
+   0.8918,
+   1.0679
+  ],
+  "fractions": [
+   0.0051,
+   0.2228,
+   0.7643,
+   0.0079
+  ],
+  "hist_substrate_now": {
+   "bare": 0.007066246056782334,
+   "1L": 0.9928669511968825,
+   "2L": 3.103965991329138e-05
+  },
+  "hist_1L_now": {
+   "1L": 0.20289852479721776,
+   "2L": 0.7970370714916973,
+   "TL": 6.440371108495207e-05
+  }
+ },
+ "in_repo_reproduction": {
+  "command": "python tools/student_demo.py colour-probe --probe-inference",
+  "run": "outputs/demo/20261005T215006_4243dbe5 (kind diagnostic_colour_probe, selected_for_measurement false)",
+  "fractions_bare_2L_1L_TL": {
+   "camera_1080p_01": [
+    0.7044,
+    0.0277,
+    0.2537,
+    0.0143
+   ],
+   "camera_1080p_02": [
+    0.7745,
+    0.0313,
+    0.1657,
+    0.0285
+   ]
+  },
+  "gains_rgb": {
+   "camera_1080p_01": [
+    1.0101,
+    1.0955,
+    0.9392
+   ],
+   "camera_1080p_02": [
+    0.983,
+    1.0549,
+    0.8995
+   ]
+  },
+  "background_estimator": "brightest flat luminance plateau (color_diagnostics.background_colour)"
+ },
+ "conclusion": "Scale/pixel-count is handled (B). The acquisition colour balance of the new capture mode differs from the mode the checkpoint was reviewed on, and that difference alone reproduces the failure (D) and its removal restores the expected class structure (C). The corrected predictions remain unvalidated: no independent reference labels exist for these images.",
+ "not_established": [
+  "classification accuracy on the new images",
+  "physical pixel calibration",
+  "that a 3-gain correction removes all spectral differences between the capture modes",
+  "the cause of the colour change (camera driver path, white balance setting, illumination)"
+ ]
+}

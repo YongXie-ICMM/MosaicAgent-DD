@@ -273,6 +273,25 @@ class WorkbenchTests(unittest.TestCase):
         self.run.assert_not_called()
         self.popen.assert_not_called()
 
+    def test_recorded_colour_check_is_shown_without_recomputation(self):
+        path = self.image_manifest([])
+        manifest = {"samples": [], "colour_check": {"verdict": "colour_balance_differs_from_reference",
+                                                     "gains_rgb": [[1.0101, 1.0955, 0.9392], [0.983, 1.0549, 0.8995]]}}
+        path.write_text(json.dumps(manifest))
+        before = path.read_bytes()
+        state = self.workbench.state()
+        self.assertEqual(len(state["warnings"]), 1)
+        self.assertIn("colour balance differs", state["warnings"][0]["en"])
+        self.assertIn("1.095", state["warnings"][0]["en"])
+        self.assertIn("白平衡", state["warnings"][0]["zh"])
+        for verdict in ("within_tolerance", "no_reference", None):
+            path.write_text(json.dumps({"samples": [], "colour_check": {"verdict": verdict}}))
+            self.workbench.collect()
+            self.assertEqual(self.workbench.errors, [])
+        self.assertEqual(path.read_bytes() != before, True)
+        self.run.assert_not_called()
+        self.popen.assert_not_called()
+
     def test_review_note_without_true_flag_does_not_invent_warning(self):
         path = self.image_manifest([])
         for flag in (False, None, "true", 1):

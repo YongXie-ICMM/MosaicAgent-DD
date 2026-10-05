@@ -224,6 +224,16 @@ class Workbench:
                     self.errors.append(words(
                         '本次运行被标记为需要人工复核；这不是工作台自动判错。' + (' 清单备注：' + note if note else ''),
                         'This run is flagged for human review; this is not an automated error verdict.' + (' Manifest note: ' + note if note else '')))
+                # Acquisition colour-balance check recorded by the demo (2026-10-05):
+                # a saved comparison with the reference substrate colour, not a new verdict.
+                colour = manifest.get('colour_check')
+                if isinstance(colour, dict) and colour.get('verdict') not in (None, 'within_tolerance', 'no_reference', 'no_images'):
+                    gains = [g for g in (colour.get('gains_rgb') or []) if isinstance(g, list)]
+                    shown = '; '.join(', '.join(f'{float(v):.3f}' for v in g[:3]) for g in gains[:4] if len(g) == 3)
+                    self.errors.append(words(
+                        '清单记录的颜色检查：原图颜色/白平衡与参考衬底颜色不一致' + ('（校正到参考的每通道增益 ' + shown + '）' if shown else '') + '。预测需复核；新扫描前先在采集端校正白平衡。',
+                        'Recorded colour check: the images\' colour balance differs from the reference substrate colour'
+                        + (' (per-channel gain to reference ' + shown + ')' if shown else '') + '. Predictions need review; correct the camera white balance before new scans.'))
                 recorded_sizes = set()
                 for sample in manifest.get('samples', [])[:40]:
                     cid = sample['sample_id']
