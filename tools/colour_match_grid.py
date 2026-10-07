@@ -1,52 +1,67 @@
 #!/usr/bin/env python3
-"""Detect and correct colour steps between scan columns of a flat grid, then stitch.
+"""Detect and correct brightness / colour differences between the tiles of a flat scan grid, then stitch.
 
 Why: a long scan can be interrupted and resumed (new camera session, different gain or
-white balance), or the camera's automatic exposure can drift between columns. The mosaic
-then shows a visible step at a column boundary, and the layer model reads the shifted
-columns differently. This tool measures the step where the evidence is strongest, in the
-registered overlap of physically adjacent tiles, decides which boundaries are real colour
-steps, applies one recorded per-channel gain per column segment, and leaves everything
-else untouched.
+white balance), the camera's automatic exposure drifts from tile to tile, and the field
+illumination is never uniform (darker on one side, darker in the corners). In the mosaic
+each of these shows up as a step at a tile boundary; the first two also shift the colour
+that the layer model reads. This tool measures all of them where the evidence is
+strongest, in the registered overlap of physically adjacent tiles, corrects them with
+recorded, reversible per-tile factors, and leaves the originals untouched.
 
-Method (all numbers are 8-bit RGB medians; nothing is fitted per pixel):
+Method (8-bit RGB; medians everywhere; nothing is fitted per pixel):
 
 1. Inventory ``mosaic_r<row>_c<col>.png`` tiles. Register a few pairs to learn on which
    side the next column lies (the scanner's ``invert_x`` moved left here) and the
    horizontal / vertical neighbour vectors.
-2. For every column boundary (c, c+1) register each row pair by template matching and
-   take the per-channel ratio of medians A/B over the overlap. The median over rows is
-   the boundary ratio. Within one run this ratio is not 1: the left edge of a field is
-   darker than its right edge (illumination falloff), so the median over *all*
-   boundaries is the vignetting baseline. The excess of a boundary over that baseline
-   is the colour step.
-3. A boundary whose excess exceeds ``--min-step`` (default 2.5 %) in any channel is a
-   step. Columns between steps form segments; the longest segment is the reference
-   (gain 1). Gains are chained across the steps, so several interruptions are handled.
-   Bare-substrate plateau medians (``flakepipeline.color_diagnostics``) are reported
-   as an independent cross-check.
-4. Output is a derived dataset: corrected tiles are new PNG copies, untouched tiles are
-   hard links to the originals (no pixel of the originals changes). When the next
-   column lies to the left, column indices are mirrored (``new_col = ncols-1-col``) so
-   the stitcher's "column index increases to the right" convention holds; the mapping
-   is recorded. If the source directory carries ``session.json`` / ``events.jsonl``,
-   derived copies with the new file hashes and the provenance of every tile are
-   written, mirroring the scanner's own ``derived_merge`` convention.
-5. ``--stitch`` runs ``run_stitch.py`` on the derived dataset with a measured stitch
+2. Illumination field ("flat field"): every tile is divided by its own per-channel mean,
+   the per-pixel median over a few hundred tiles removes the specimen (its content is
+   uncorrelated between tiles, the illumination is the same in all of them), and a
+   mild Gaussian smoothing (sigma = 1/32 of the width) removes what is left of it. The
+   field is normalised to mean 1 per channel, so the average brightness of a tile does
+   not change; only its spatial profile does.
+3. Every neighbouring pair (same row, adjacent columns; same column, adjacent rows) is
+   registered by template matching on the flat-fielded tiles and the per-channel ratio
+   of medians A/B over the overlap is recorded. Both tiles looked at the same physical
+   region, so after the field correction the ratio is an exposure / colour difference
+   between the two tiles. The median ratio of each edge kind (all horizontal pairs, all
+   vertical pairs) is what every pair of that kind has in common - the part of the
+   illumination the field did not capture - and is removed before solving; otherwise a
+   0.5 % residual would be chained over 50 rows into a 30 % ramp.
+4. Gains are solved from all edges at once: one free level per column plus a penalised
+   deviation per tile (weighted least squares on log gains; edges weighted by the flat
+   substrate share of their overlap and Huber re-weighted by residual). A run resumed
+   with a different camera gain therefore gets its whole block of columns corrected, a
+   single tile whose own edges agree that it is darker (auto-exposure reacting to bright
+   content) gets its own factor, and a tiny systematic bias of one edge kind cannot be
+   chained along 50 rows into a ramp. The longest run of columns without a step keeps
+   mean gain 1. Gains outside ``GAIN_LIMITS`` are clipped and flagged; too many flags
+   stop the run. ``--gain-mode column`` pins the tile deviations to 0 (the previous,
+   conservative behaviour). Bare-substrate plateau medians per column
+   (``flakepipeline.color_diagnostics``) are reported as an independent cross-check.
+5. Output is a derived dataset: corrected tiles are new PNG copies, tiles that need no
+   change are hard links to the originals (or byte copies where links are impossible).
+   When the next column lies to the left, column indices are mirrored
+   (``new_col = ncols-1-col``) so the stitcher's "column index increases to the right"
+   convention holds. ``session.json`` / ``events.jsonl`` are rewritten with the new file
+   hashes and the provenance of every tile (source file, source hash, gain, flat-field
+   record), mirroring the scanner's own derived-dataset convention.
+6. ``--stitch`` runs ``run_stitch.py`` on the derived dataset with a measured stitch
    profile. Kimi is used whenever ``run_stitch.py`` finds credentials (``--no-ai`` is
-   passed through only when requested), as the owner requires.
+   passed through only when requested), as the owner requires. The stitcher's own
+   render-time flat field then finds an almost uniform field and changes little.
 
-Limits: one gain per column; drift inside a column is reported in the per-row residuals
-but not corrected. The gains describe this acquisition, not the camera; the analysis
-colour check against the reference substrate colour still runs on the result.
+Limits: the gains describe this acquisition, not the camera; they are multiplicative, so
+a tile with clipped highlights stays clipped (the clipped fraction is recorded). The
+analysis colour check against the reference substrate colour still runs on the result.
 """
 from __future__ import annotations
 
 import argparse
+from collections import OrderedDict
 from datetime import datetime, timezone
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -61,9 +76,15 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 TILE_RE = re.compile(r"^mosaic_r(?P<row>\d+)_c(?P<col>\d+)\.(?:png|jpg|jpeg|tif|tiff|bmp)$", re.I)
-SCHEMA_VERSION = 1
-DEFAULT_MIN_STEP = 0.025
+SCHEMA_VERSION = 2
+DEFAULT_MIN_STEP = 0.025          # column-summary threshold (report only in tile mode)
 GAIN_LIMITS = (0.5, 2.0)
+TILE_PENALTY = 0.3                # cost of a per-tile deviation from its column level (edge weight = 1)
+FLAT_SAMPLES = 400                # tiles used for the illumination field
+FLAT_SCALE_DIV = 4                # field is estimated at 1/4 tile size
+FLAT_SMOOTH_DIV = 32              # Gaussian sigma = tile width / FLAT_SMOOTH_DIV (at the field's scale)
+MEASURE_SCALE = 0.5               # tiles are registered / measured at this scale
+LUM = np.array([0.299, 0.587, 0.114], np.float32)
 
 
 class ColourMatchError(ValueError):
@@ -90,7 +111,7 @@ def inventory(data_dir: Path) -> dict:
     if missing:
         raise ColourMatchError(f"Incomplete grid; missing {missing[:10]}")
     if len(cols) < 2:
-        raise ColourMatchError("At least two columns are needed to compare column colours")
+        raise ColourMatchError("At least two columns are needed to compare tile colours")
     return {"grid": grid, "rows": rows, "cols": cols}
 
 
@@ -105,6 +126,14 @@ def _load_rgb(path) -> np.ndarray:
 def _gray(rgb: np.ndarray) -> np.ndarray:
     import cv2
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+
+
+def _resize(rgb: np.ndarray, scale: float) -> np.ndarray:
+    import cv2
+    if scale == 1:
+        return rgb
+    h, w = rgb.shape[:2]
+    return cv2.resize(rgb, (max(1, int(round(w * scale))), max(1, int(round(h * scale)))), interpolation=cv2.INTER_AREA)
 
 
 # ----------------------------------------------------------------------------
@@ -143,7 +172,7 @@ def register(A: np.ndarray, B: np.ndarray, side: str, *, strip: float = 0.04, ma
 
 
 def detect_direction(inv: dict, *, samples: int = 6, seed: int = 0) -> dict:
-    """Which side the next column and the next row lie on, with median vectors."""
+    """Which side the next column and the next row lie on, with median vectors (full-resolution px)."""
     rng = np.random.default_rng(seed)
     rows, cols, grid = inv["rows"], inv["cols"], inv["grid"]
     picks = []
@@ -175,7 +204,75 @@ def detect_direction(inv: dict, *, samples: int = 6, seed: int = 0) -> dict:
 
 
 # ----------------------------------------------------------------------------
-# Boundary colour statistics
+# Illumination field
+# ----------------------------------------------------------------------------
+def estimate_flatfield(inv: dict, *, samples: int = FLAT_SAMPLES, scale_div: int = FLAT_SCALE_DIV,
+                       smooth_div: int = FLAT_SMOOTH_DIV, seed: int = 0, log=print) -> dict:
+    """Per-pixel median of mean-normalised tiles, mildly smoothed; mean 1 per channel."""
+    import cv2
+    grid = inv["grid"]
+    keys = list(grid)
+    rng = np.random.default_rng(seed)
+    if len(keys) > samples:
+        keys = [keys[i] for i in sorted(rng.choice(len(keys), samples, replace=False))]
+    stack, shape, rejected = [], None, 0
+    for key in keys:
+        img = _load_rgb(grid[key])
+        h, w = img.shape[:2]
+        small = cv2.resize(img, (w // scale_div, h // scale_div), interpolation=cv2.INTER_AREA).astype(np.float32)
+        if shape is None:
+            shape = small.shape
+        elif small.shape != shape:
+            raise ColourMatchError(f"Tiles differ in size: {grid[key]}")
+        g = small @ LUM
+        if g.std() < 3.0 or g.mean() < 8.0 or g.mean() > 247.0:       # blank / blown-out tile: no illumination information
+            rejected += 1
+            continue
+        means = small.reshape(-1, 3).mean(axis=0)
+        if np.any(means < 1.0):
+            rejected += 1
+            continue
+        stack.append((small / means).astype(np.float16))
+    if len(stack) < 8:
+        raise ColourMatchError(f"Only {len(stack)} tiles usable for the illumination field ({rejected} rejected)")
+    arr = np.stack(stack)                                   # (n, h, w, 3) float16
+    h, w = shape[:2]
+    med = np.empty((h, w, 3), np.float32)
+    step = max(1, (1 << 26) // (arr.shape[0] * w * 3 * 8))    # ~512 MB float64 per chunk
+    for y0 in range(0, h, step):
+        med[y0:y0 + step] = np.median(arr[:, y0:y0 + step].astype(np.float32), axis=0)
+    del arr
+    sigma = max(w, h) / float(smooth_div)
+    field = cv2.GaussianBlur(med, (0, 0), sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_REPLICATE).astype(np.float32)
+    if not np.all(np.isfinite(field)):
+        raise ColourMatchError("Illumination field has non-finite values; the sample tiles are unusable")
+    resid_rms = float(np.sqrt(np.mean((med - field) ** 2)))
+    field = np.maximum(field, 1e-3)
+    field /= field.reshape(-1, 3).mean(axis=0)
+    xprof = field.mean(axis=0)
+    yprof = field.mean(axis=1)
+    info = {"model": f"smoothed_median_sigma{sigma:.1f}px", "sigma_px": round(sigma, 2),
+            "scale_div": scale_div, "field_size_wh": [w, h], "samples_used": len(stack), "samples_rejected": rejected,
+            "smoothing_residual_rms": round(resid_rms, 5), "range": [round(float(field.min()), 4), round(float(field.max()), 4)],
+            "edge_to_edge_ratio_left_over_right": (xprof[0] / xprof[-1]).round(4).tolist(),
+            "edge_to_edge_ratio_top_over_bottom": (yprof[0] / yprof[-1]).round(4).tolist(),
+            "nonuniformity_max_abs": round(float(np.max(np.abs(field - 1))), 4)}
+    log(f"[flatfield] {info['model']} from {len(stack)} tiles: left/right {info['edge_to_edge_ratio_left_over_right']}, "
+        f"top/bottom {info['edge_to_edge_ratio_top_over_bottom']}, range {info['range']}, smoothing residual RMS {resid_rms:.4f}")
+    return {"field": field, "info": info}
+
+
+def flatfield_correction(ff: dict | None, w: int, h: int) -> np.ndarray | None:
+    """Per-pixel multiplicative correction (1 / field) at full tile size, or None."""
+    import cv2
+    if ff is None:
+        return None
+    full = cv2.resize(ff["field"], (w, h), interpolation=cv2.INTER_LINEAR)
+    return (1.0 / np.maximum(full, 1e-3)).astype(np.float32)
+
+
+# ----------------------------------------------------------------------------
+# Edge measurement
 # ----------------------------------------------------------------------------
 def overlap_ratio(A: np.ndarray, B: np.ndarray, dx: int, dy: int) -> dict | None:
     """Per-channel ratio of medians A/B over the registered overlap; None when too small."""
@@ -193,48 +290,205 @@ def overlap_ratio(A: np.ndarray, B: np.ndarray, dx: int, dy: int) -> dict | None
     if ok.sum() < 500:
         return None
     a, b = a[ok], b[ok]
-    lum = a @ np.array([0.299, 0.587, 0.114], np.float32)
+    lum = a @ LUM
     bright = lum >= np.percentile(lum, 50)
+    med_lum = float(np.median(lum))
+    flat = float(np.mean(np.abs(lum - med_lum) <= 0.1 * med_lum))      # share of pixels on one flat level (substrate)
     return {"ratio_all": (np.median(a, 0) / np.median(b, 0)).tolist(),
             "ratio_bright": (np.median(a[bright], 0) / np.median(b[bright], 0)).tolist(),
-            "pixels": int(ok.sum()), "overlap_wh": [int(xa1 - xa0), int(ya1 - ya0)]}
+            "pixels": int(ok.sum()), "flat_fraction": round(flat, 4), "overlap_wh": [int(xa1 - xa0), int(ya1 - ya0)]}
 
 
-def measure_boundaries(inv: dict, direction: dict, *, max_rows: int = 24, min_ncc: float = 0.6, log=print) -> list[dict]:
-    """One record per column boundary with per-row registered overlap ratios."""
+class _TileCache:
+    """LRU of measurement-scale, flat-fielded tiles (uint8), bounded by count."""
+
+    def __init__(self, grid, corr, scale, capacity):
+        self.grid, self.corr, self.scale, self.capacity = grid, corr, scale, capacity
+        self.store: OrderedDict = OrderedDict()
+
+    def get(self, key):
+        img = self.store.get(key)
+        if img is not None:
+            self.store.move_to_end(key)
+            return img
+        rgb = _load_rgb(self.grid[key])
+        if self.corr is not None:
+            rgb = np.clip(np.rint(rgb.astype(np.float32) * self.corr), 0, 255).astype(np.uint8)
+        img = _resize(rgb, self.scale)
+        self.store[key] = img
+        if len(self.store) > self.capacity:
+            self.store.popitem(last=False)
+        return img
+
+
+def measure_edges(inv: dict, direction: dict, ff: dict | None, *, min_ncc: float = 0.6,
+                  scale: float = MEASURE_SCALE, log=print) -> list[dict]:
+    """One record per neighbouring pair (horizontal: same row, next column; vertical: same column, next row)."""
     rows, cols, grid = inv["rows"], inv["cols"], inv["grid"]
     side = direction["next_column_side"]
-    pdx, pdy = direction["next_column_vector_dxdy"]
-    step = max(1, len(rows) // max_rows)
-    sample_rows = rows[::step]
-    out = []
-    for ci in range(len(cols) - 1):
-        ca, cb = cols[ci], cols[ci + 1]
-        per_row = []
-        for r in sample_rows:
-            A, B = _load_rgb(grid[(r, ca)]), _load_rgb(grid[(r, cb)])
-            dx, dy, score = register(A, B, side)
-            if score < min_ncc or abs(dx - pdx) > 0.1 * A.shape[1] or abs(dy - pdy) > 0.15 * A.shape[0]:
-                continue
-            stats = overlap_ratio(A, B, dx, dy)
-            if stats:
-                stats.update(row=r, dx=dx, dy=dy, ncc=round(score, 3))
-                per_row.append(stats)
-        rec = {"col_a": ca, "col_b": cb, "rows_sampled": len(sample_rows), "rows_registered": len(per_row)}
-        if per_row:
-            arr = np.array([p["ratio_all"] for p in per_row])
-            rec["ratio_all_median"] = np.median(arr, 0).round(5).tolist()
-            rec["ratio_all_iqr"] = (np.percentile(arr, 75, 0) - np.percentile(arr, 25, 0)).round(5).tolist()
-            rec["ratio_bright_median"] = np.median([p["ratio_bright"] for p in per_row], 0).round(5).tolist()
-            rec["per_row"] = per_row
-        out.append(rec)
-        log(f"[boundary] c{ca}|c{cb}: {len(per_row)}/{len(sample_rows)} rows registered"
-            + (f", A/B median {np.round(rec['ratio_all_median'], 4).tolist()}" if per_row else ""))
-    return out
+    sample = _load_rgb(next(iter(grid.values())))
+    h, w = sample.shape[:2]
+    corr = flatfield_correction(ff, w, h)
+    if w * scale < 640:                      # small tiles are measured at full size
+        scale = 1.0
+    cache = _TileCache(grid, corr, scale, capacity=2 * len(rows) + 4)
+    pdx_h, pdy_h = (np.array(direction["next_column_vector_dxdy"]) * scale).tolist()
+    pdx_v, pdy_v = (np.array(direction["next_row_vector_dxdy"]) * scale).tolist() if direction.get("next_row_vector_dxdy") else (None, None)
+    edges, n_bad = [], 0
+    for ci, c in enumerate(cols):
+        for ri, r in enumerate(rows):
+            A = cache.get((r, c))
+            pairs = []
+            if ri + 1 < len(rows):
+                pairs.append(("v", (rows[ri + 1], c), "below", pdx_v, pdy_v))
+            if ci + 1 < len(cols):
+                pairs.append(("h", (r, cols[ci + 1]), side, pdx_h, pdy_h))
+            for kind, key_b, bside, pdx, pdy in pairs:
+                B = cache.get(key_b)
+                dx, dy, score = register(A, B, bside)
+                rec = {"kind": kind, "a": [r, c], "b": list(key_b), "dx": dx / scale, "dy": dy / scale, "ncc": round(score, 3)}
+                stats = None
+                if score >= min_ncc and (pdx is None or (abs(dx - pdx) <= 0.1 * A.shape[1] and abs(dy - pdy) <= 0.15 * A.shape[0])):
+                    stats = overlap_ratio(A, B, dx, dy)
+                if stats:
+                    rec.update(stats)
+                else:
+                    rec["rejected"] = "registration" if score < min_ncc else "overlap"
+                    n_bad += 1
+                edges.append(rec)
+        log(f"[edges] column c{c}: {sum(1 for e in edges if e['a'][1] == c and 'ratio_all' in e)} usable edges so far from this column")
+    good = [e for e in edges if "ratio_all" in e]
+    if not good:
+        raise ColourMatchError("No neighbouring pair could be registered; colours cannot be compared")
+    for kind in ("h", "v"):
+        rs = np.array([e["ratio_all"] for e in good if e["kind"] == kind])
+        if len(rs):
+            log(f"[edges] {len(rs)} {kind}-edges: median A/B {np.median(rs, 0).round(4).tolist()}, "
+                f"IQR {(np.percentile(rs, 75, 0) - np.percentile(rs, 25, 0)).round(4).tolist()}")
+    log(f"[edges] {len(good)} usable of {len(edges)} ({n_bad} rejected)")
+    return edges
+
+
+# ----------------------------------------------------------------------------
+# Gains
+# ----------------------------------------------------------------------------
+def solve_gains(edges: list[dict], inv: dict, *, huber: float = 0.03, tile_penalty: float = TILE_PENALTY,
+                iters: int = 4, mode: str = "tile", min_step: float = DEFAULT_MIN_STEP, baseline: bool = True,
+                log=print) -> dict:
+    """Log-gains from all usable edges: one level per column plus a penalised deviation per tile.
+
+    ``gain(tile) = column_level + tile_deviation``. Column levels are free (a resumed run, a drift between
+    columns), tile deviations cost ``tile_penalty`` x deviation^2 against the edge misfit, so a tile is
+    moved only where its own edges agree on it (an auto-exposure reaction to bright content) and a tiny
+    systematic bias of one edge kind cannot be chained along 50 rows into a ramp. ``mode="column"`` pins
+    the deviations to 0. Edges are weighted by the flat (substrate) share of their overlap and Huber
+    re-weighted by their residual, so textured or mis-registered overlaps count less.
+
+    With ``baseline`` the median log-ratio of each edge kind (median over boundaries of per-boundary
+    medians) is removed first: what every horizontal (or vertical) pair has in common is illumination
+    the field did not capture, not an exposure difference.
+    """
+    from scipy.sparse import coo_matrix, diags
+    from scipy.sparse.linalg import spsolve
+    cols, rows = inv["cols"], inv["rows"]
+    keys = [(r, c) for c in cols for r in rows]
+    idx = {k: i for i, k in enumerate(keys)}
+    cidx = {c: i for i, c in enumerate(cols)}
+    n, m = len(keys), len(cols)
+    use = [e for e in edges if "ratio_all" in e]
+    if not use:
+        raise ColourMatchError("No usable edges")
+    ia = np.array([idx[tuple(e["a"])] for e in use])
+    ib = np.array([idx[tuple(e["b"])] for e in use])
+    ca = np.array([cidx[e["a"][1]] for e in use])
+    cb = np.array([cidx[e["b"][1]] for e in use])
+    d = -np.log(np.clip(np.array([e["ratio_all"] for e in use], np.float64), 1e-3, 1e3))   # g_a - g_b = d
+    kinds = np.array([e["kind"] for e in use])
+    # baseline per edge kind = median over boundaries of the per-boundary medians (a boundary is one column pair
+    # for horizontal edges, one column for vertical edges), so a few stepped boundaries cannot bias it
+    groups = np.array([(e["a"][1], e["b"][1]) if e["kind"] == "h" else (e["a"][1], -1) for e in use])
+    baselines = {}
+    for kind in ("h", "v"):
+        sel = np.flatnonzero(kinds == kind)
+        if len(sel):
+            per_group = [np.median(d[sel[(groups[sel] == g).all(axis=1)]], axis=0) for g in np.unique(groups[sel], axis=0)]
+            med = np.median(np.array(per_group), axis=0)
+            baselines[kind] = np.exp(-med).round(5).tolist()          # typical A/B ratio of this edge kind
+            if baseline:
+                d[sel] -= med
+    w0 = np.array([min(1.0, e.get("flat_fraction", 1.0) / 0.6) for e in use])
+    w = w0.copy()
+    penalty = 1e6 if mode == "column" else float(tile_penalty)
+    # unknowns: n tile deviations, then m column levels
+    m_e = len(use)
+    r_idx = np.repeat(np.arange(m_e), 4)
+    c_idx = np.stack([ia, n + ca, ib, n + cb], axis=1).ravel()
+    v_idx = np.tile(np.array([1.0, 1.0, -1.0, -1.0]), m_e)
+    A = coo_matrix((v_idx, (r_idx, c_idx)), shape=(m_e, n + m)).tocsr()
+    prior = diags(np.concatenate([np.full(n, penalty), np.full(m, 1e-6)]))
+    x = np.zeros((n + m, 3))
+    for _ in range(iters):
+        AtW = A.T @ diags(w)
+        L = (AtW @ A + prior).tocsc()
+        for ch in range(3):
+            x[:, ch] = spsolve(L, AtW @ d[:, ch])
+        resid = (A @ x) - d
+        r = np.abs(resid).max(axis=1)
+        w = w0 * np.where(r <= huber, 1.0, huber / np.maximum(r, 1e-9))
+    g = x[:n] + x[n:][np.array([cidx[c] for _, c in keys])]
+    col_level = x[n:]
+    # gauge: the longest run of columns without a step keeps mean gain 1 (the reference acquisition)
+    segments, current = [], [cols[0]]
+    for c0, c1 in zip(cols, cols[1:]):
+        if np.max(np.abs(col_level[cidx[c1]] - col_level[cidx[c0]])) > min_step:
+            segments.append(current)
+            current = [c1]
+        else:
+            current.append(c1)
+    segments.append(current)
+    reference = max(segments, key=len)
+    shift = np.mean([g[idx[(r, c)]] for c in reference for r in rows], axis=0)
+    g -= shift
+    col_level -= shift
+    resid = (A @ x) - d
+    before = np.sqrt(np.mean(d ** 2))
+    after = np.sqrt(np.mean(resid ** 2))
+    outliers = [{"a": use[i]["a"], "b": use[i]["b"], "kind": use[i]["kind"], "residual": resid[i].round(4).tolist(),
+                 "weight": round(float(w[i]), 3)} for i in np.flatnonzero(w < 0.5 * w0)]
+    gains = np.exp(g)
+    lo, hi = GAIN_LIMITS
+    flagged = [keys[i] for i in np.flatnonzero(np.any((gains < lo) | (gains > hi), axis=1))]
+    if len(flagged) > 0.05 * n:
+        raise ColourMatchError(f"Implausible gain for {len(flagged)} of {n} tiles (outside {GAIN_LIMITS}); refusing to correct")
+    gains = np.clip(gains, lo, hi)
+    per_tile = {f"r{r}_c{c}": gains[idx[(r, c)]].round(5).tolist() for (r, c) in keys}
+    dev = np.exp(x[:n])
+    col_gain = {c: np.exp(col_level[cidx[c]]) for c in cols}
+    col_median = {c: np.median(np.array([gains[idx[(r, c)]] for r in rows]), axis=0) for c in cols}
+    steps = []
+    for c0, c1 in zip(cols, cols[1:]):
+        rel = col_gain[c1] / col_gain[c0]
+        if np.max(np.abs(rel - 1)) > min_step:
+            steps.append({"col_a": c0, "col_b": c1, "relative_gain_b_over_a": rel.round(4).tolist()})
+    changed = [k for k in keys if np.any(np.abs(gains[idx[k]] - 1) > 1e-6)]
+    log(f"[gains] mode={mode}, tile penalty {penalty:g}; edge log-ratio RMS {before:.4f} -> residual {after:.4f}; "
+        f"{len(outliers)} down-weighted edges; {len(flagged)} flagged tiles; gain range {gains.min():.3f}..{gains.max():.3f}; "
+        f"tile deviations within {np.abs(dev - 1).max():.3f}")
+    for c in cols:
+        log(f"        c{c}: level {col_gain[c].round(4).tolist()}  median tile gain {col_median[c].round(4).tolist()}")
+    return {"mode": mode, "gains_rgb_by_tile": per_tile, "tiles_corrected": len(changed),
+            "edge_rms_before": round(float(before), 5), "edge_rms_after": round(float(after), 5),
+            "edges_used": len(use), "downweighted_edges": outliers, "flagged_tiles": [f"r{r}_c{c}" for r, c in flagged],
+            "column_level_gain_rgb": {str(c): v.round(5).tolist() for c, v in col_gain.items()},
+            "column_median_gain_rgb": {str(c): v.round(5).tolist() for c, v in col_median.items()},
+            "tile_deviation_max_abs": round(float(np.abs(dev - 1).max()), 5),
+            "column_steps": steps, "segments": segments, "reference_segment": reference,
+            "median_ratio_by_edge_kind": baselines, "baseline_removed": bool(baseline),
+            "min_step": min_step, "huber": huber, "tile_penalty": penalty}
 
 
 def plateau_columns(inv: dict, *, max_rows: int = 24) -> dict:
-    """Bare-substrate plateau median RGB per column (independent cross-check)."""
+    """Bare-substrate plateau median RGB per column of the ORIGINAL tiles (independent cross-check)."""
     from PIL import Image
     from flakepipeline import color_diagnostics as cd
     rows, cols, grid = inv["rows"], inv["cols"], inv["grid"]
@@ -254,61 +508,6 @@ def plateau_columns(inv: dict, *, max_rows: int = 24) -> dict:
 
 
 # ----------------------------------------------------------------------------
-# Decision: steps, segments, gains
-# ----------------------------------------------------------------------------
-def decide_gains(boundaries: list[dict], cols: list[int], *, min_step: float = DEFAULT_MIN_STEP) -> dict:
-    usable = [b for b in boundaries if b.get("ratio_all_median")]
-    if len(usable) < 1:
-        raise ColourMatchError("No column boundary could be registered; colours cannot be compared")
-    ratios = np.array([b["ratio_all_median"] for b in usable])
-    baseline = np.median(ratios, 0)          # vignetting-only ratio: most boundaries are within one run
-    if len(usable) < 3:
-        baseline_note = "fewer than 3 boundaries: baseline is unreliable, treat steps with care"
-    else:
-        baseline_note = "median over all boundaries"
-    steps = []
-    for b in boundaries:
-        if not b.get("ratio_all_median"):
-            b["excess"] = None
-            b["is_step"] = False
-            continue
-        excess = (np.array(b["ratio_all_median"]) / baseline)
-        b["excess"] = excess.round(5).tolist()          # A relative to B after removing vignetting
-        b["max_abs_step"] = round(float(np.max(np.abs(excess - 1))), 5)
-        b["is_step"] = bool(b["max_abs_step"] > min_step)
-        if b["is_step"]:
-            steps.append(b)
-    # segments of columns separated by steps
-    segments, current = [], [cols[0]]
-    for b, c_next in zip(boundaries, cols[1:]):
-        if b.get("is_step"):
-            segments.append(current)
-            current = [c_next]
-        else:
-            current.append(c_next)
-    segments.append(current)
-    reference = max(segments, key=len)
-    # chain log-gains: gain[c_b] / gain[c_a] = excess (so that corrected B matches A's level)
-    log_rel = {cols[0]: np.zeros(3)}
-    for b, c_next in zip(boundaries, cols[1:]):
-        e = np.array(b["excess"]) if b.get("is_step") else np.ones(3)
-        log_rel[c_next] = log_rel[b["col_a"]] + np.log(e)
-    ref_level = np.mean([log_rel[c] for c in reference], axis=0)
-    gains = {}
-    for c in cols:
-        g = np.exp(log_rel[c] - ref_level)
-        gains[c] = g.round(5).tolist()
-        if np.any(g < GAIN_LIMITS[0]) or np.any(g > GAIN_LIMITS[1]):
-            raise ColourMatchError(f"Implausible gain {g} for column {c}; refusing to correct")
-    corrected = [c for c in cols if c not in reference and any(abs(x - 1) > 1e-6 for x in gains[c])]
-    return {"vignetting_baseline_ratio": baseline.round(5).tolist(), "baseline_note": baseline_note,
-            "min_step": min_step, "steps": [{"col_a": s["col_a"], "col_b": s["col_b"], "excess": s["excess"],
-                                             "max_abs_step": s["max_abs_step"]} for s in steps],
-            "segments": segments, "reference_segment": reference, "gains_rgb": {str(c): gains[c] for c in cols},
-            "corrected_columns": corrected}
-
-
-# ----------------------------------------------------------------------------
 # Apply: derived dataset
 # ----------------------------------------------------------------------------
 def _sha256(path: Path) -> str:
@@ -319,7 +518,8 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def apply(inv: dict, decision: dict, direction: dict, out_dir: Path, *, source_dir: Path, log=print) -> dict:
+def apply(inv: dict, solution: dict, direction: dict, out_dir: Path, *, source_dir: Path, ff: dict | None = None,
+          log=print) -> dict:
     from PIL import Image
     out_dir = Path(out_dir)
     if out_dir.exists() and any(out_dir.iterdir()):
@@ -328,20 +528,31 @@ def apply(inv: dict, decision: dict, direction: dict, out_dir: Path, *, source_d
     cols, rows, grid = inv["cols"], inv["rows"], inv["grid"]
     mirror = direction["next_column_side"] == "left"
     ncols = len(cols)
+    corr = None
+    ff_record = None
+    if ff is not None:
+        sample = _load_rgb(next(iter(grid.values())))
+        corr = flatfield_correction(ff, sample.shape[1], sample.shape[0])
+        np.save(out_dir / "flat_field.npy", ff["field"])
+        ff_record = dict(ff["info"], file="flat_field.npy", file_sha256=_sha256(out_dir / "flat_field.npy"),
+                         applied_as="pixel / field (field normalised to mean 1 per channel)")
     records = []
     for c in cols:
-        gain = np.array(decision["gains_rgb"][str(c)], np.float32)
-        correct = any(abs(float(g) - 1) > 1e-6 for g in gain)
         new_c = (ncols - 1 - cols.index(c)) if mirror else cols.index(c)
+        n_corr = 0
         for r in rows:
             src = grid[(r, c)]
             dst = out_dir / f"mosaic_r{r}_c{new_c}{src.suffix.lower()}"
-            if correct:
+            gain = np.array(solution["gains_rgb_by_tile"][f"r{r}_c{c}"], np.float32)
+            gain_changes = bool(np.any(np.abs(gain - 1) > 1e-6))
+            if corr is not None or gain_changes:
                 with Image.open(src) as im:
                     rgb = np.asarray(im.convert("RGB")).astype(np.float32)
-                out = np.clip(np.rint(rgb * gain), 0, 255).astype(np.uint8)
+                factor = gain[None, None, :] if corr is None else corr * gain[None, None, :]
+                out = np.clip(np.rint(rgb * factor), 0, 255).astype(np.uint8)
                 Image.fromarray(out).save(dst, format="PNG" if dst.suffix == ".png" else None, compress_level=1)
-                kind, clipped = "gain_corrected_copy", float(np.mean(np.any(out >= 255, axis=2)))
+                kind, clipped = "corrected_copy", float(np.mean(np.any(out >= 255, axis=2)))
+                n_corr += 1
             else:
                 try:
                     os.link(src, dst)
@@ -351,14 +562,17 @@ def apply(inv: dict, decision: dict, direction: dict, out_dir: Path, *, source_d
                     kind = "byte_copy_of_original"
                 clipped = None
             records.append({"row": r, "source_col": c, "col": new_c, "filename": dst.name, "kind": kind,
-                            "gain_rgb": gain.round(5).tolist() if correct else None, "clipped_fraction": clipped,
-                            "source_filename": src.name, "source_sha256": _sha256(src), "sha256": _sha256(dst),
-                            "bytes": dst.stat().st_size})
-        log(f"[apply] column c{c} -> c{new_c}: {'gain ' + str(gain.round(4).tolist()) if correct else 'unchanged (hard links)'}")
+                            "gain_rgb": gain.round(5).tolist() if kind == "corrected_copy" else None,
+                            "flat_field": bool(corr is not None) if kind == "corrected_copy" else False,
+                            "clipped_fraction": clipped, "source_filename": src.name, "source_sha256": _sha256(src),
+                            "sha256": _sha256(dst), "bytes": dst.stat().st_size})
+        log(f"[apply] column c{c} -> c{new_c}: {n_corr}/{len(rows)} corrected copies, median gain "
+            f"{solution['column_median_gain_rgb'][str(c)]}")
     manifest = {"schema_version": SCHEMA_VERSION, "kind": "colour_matched_grid", "built_at_utc": datetime.now(timezone.utc).isoformat(),
                 "source_dir": str(source_dir), "mirrored_columns": mirror,
                 "column_mapping": f"new_col = {ncols - 1} - index(old_col)" if mirror else "new_col = index(old_col)",
-                "direction": direction, "decision": decision, "tiles": records}
+                "direction": direction, "flat_field": ff_record,
+                "gains": {k: v for k, v in solution.items() if k != "gains_rgb_by_tile"}, "tiles": records}
     _write_derived_records(source_dir, out_dir, manifest, log)
     (out_dir / "colour_match_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return manifest
@@ -379,10 +593,12 @@ def _write_derived_records(source_dir: Path, out_dir: Path, manifest: dict, log)
                 if e.get("event") == "capture_success":
                     captures[e.get("filename") or e.get("image_relative_path")] = e
     now = datetime.now(timezone.utc).isoformat()
-    note = {"schema_version": SCHEMA_VERSION, "purpose": "stitching-only derived dataset: column colour steps corrected",
+    gains = manifest["gains"]
+    note = {"schema_version": SCHEMA_VERSION, "purpose": "stitching-only derived dataset: illumination field and per-tile exposure/colour gains corrected",
             "built_at_utc": now, "source_session_id": session.get("session_id"),
             "column_mapping": manifest["column_mapping"], "mirrored_columns": manifest["mirrored_columns"],
-            "gains_rgb": manifest["decision"]["gains_rgb"], "corrected_columns": manifest["decision"]["corrected_columns"],
+            "flat_field": manifest["flat_field"], "gain_mode": gains["mode"], "tiles_corrected": gains["tiles_corrected"],
+            "column_median_gain_rgb": gains["column_median_gain_rgb"], "column_steps": gains["column_steps"],
             "warning": "Derived for seam appearance and provenance; not evidence of one continuous acquisition. Originals untouched."}
     session = dict(session)
     session["derived_colour_correction"] = note
@@ -401,9 +617,10 @@ def _write_derived_records(source_dir: Path, out_dir: Path, manifest: dict, log)
                     image_sha256=t["sha256"], image_bytes=t["bytes"], sequence=i, session_id=session.get("session_id"),
                     timestamp_utc=base.get("timestamp_utc", now),
                     event_id=hashlib.sha256(("derived-" + t["filename"]).encode()).hexdigest()[:32],
-                    derived_colour_correction={"kind": t["kind"], "gain_rgb": t["gain_rgb"], "source_filename": t["source_filename"],
-                                               "source_sha256": t["source_sha256"], "source_col": t["source_col"],
-                                               "clipped_fraction": t["clipped_fraction"], "source_event_id": base.get("event_id")})
+                    derived_colour_correction={"kind": t["kind"], "gain_rgb": t["gain_rgb"], "flat_field": t["flat_field"],
+                                               "source_filename": t["source_filename"], "source_sha256": t["source_sha256"],
+                                               "source_col": t["source_col"], "clipped_fraction": t["clipped_fraction"],
+                                               "source_event_id": base.get("event_id")})
         events.append(base)
     events.append({"event": "session_finished", "timestamp_utc": now, "session_id": session.get("session_id"), "status": session.get("status"),
                    "positions_completed": len(manifest["tiles"]), "photos_saved": len(manifest["tiles"]),
@@ -459,9 +676,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--data", required=True, type=Path, help="flat-grid directory with mosaic_r<row>_c<col>.png (+ session.json/events.jsonl)")
     parser.add_argument("--out", type=Path, default=None, help="derived dataset directory (default: <data>_colour_matched)")
-    parser.add_argument("--min-step", type=float, default=DEFAULT_MIN_STEP, help="colour step threshold on the vignetting-free boundary ratio (fraction)")
-    parser.add_argument("--max-rows", type=int, default=24, help="row pairs sampled per boundary")
-    parser.add_argument("--report-only", action="store_true", help="measure and decide, write the report, change nothing")
+    parser.add_argument("--gain-mode", choices=("tile", "column"), default="tile", help="one gain per tile (default) or per column")
+    parser.add_argument("--tile-penalty", type=float, default=TILE_PENALTY, help="penalty on per-tile deviations from the column level")
+    parser.add_argument("--no-flat-field", action="store_true", help="do not correct the illumination field (only exposure/colour gains)")
+    parser.add_argument("--min-step", type=float, default=DEFAULT_MIN_STEP, help="column-step threshold for the summary (fraction)")
+    parser.add_argument("--measure-scale", type=float, default=MEASURE_SCALE, help="tiles are registered and measured at this scale")
+    parser.add_argument("--max-rows", type=int, default=24, help="rows sampled per column for the substrate-plateau cross-check")
+    parser.add_argument("--report-only", action="store_true", help="measure and solve, write the report, change nothing")
     parser.add_argument("--stitch", action="store_true", help="run run_stitch.py on the derived dataset afterwards")
     parser.add_argument("--no-ai", action="store_true", help="pass --no-ai to run_stitch.py (default: Kimi when configured)")
     parser.add_argument("--scale-div", type=int, default=4, help="run_stitch.py registration cache downsampling (must divide the tile size)")
@@ -482,26 +703,23 @@ def main(argv=None) -> int:
         direction = detect_direction(inv)
         log(f"[direction] next column lies {direction['next_column_side']} at {np.round(direction['next_column_vector_dxdy']).tolist()} px (NCC {direction['next_column_ncc']}); "
             f"next row at {np.round(direction['next_row_vector_dxdy']).tolist() if direction['next_row_vector_dxdy'] else None}")
-        boundaries = measure_boundaries(inv, direction, max_rows=args.max_rows, log=log)
-        decision = decide_gains(boundaries, inv["cols"], min_step=args.min_step)
+        ff = None if args.no_flat_field else estimate_flatfield(inv, log=log)
+        edges = measure_edges(inv, direction, ff, scale=args.measure_scale, log=log)
+        solution = solve_gains(edges, inv, mode=args.gain_mode, tile_penalty=args.tile_penalty, min_step=args.min_step, log=log)
         plateaus = plateau_columns(inv, max_rows=args.max_rows)
         report = {"schema_version": SCHEMA_VERSION, "kind": "colour_match_report", "data_dir": str(data),
                   "measured_at_utc": datetime.now(timezone.utc).isoformat(), "direction": direction,
-                  "boundaries": [{k: v for k, v in b.items() if k != "per_row"} for b in boundaries],
-                  "per_row": {f"c{b['col_a']}|c{b['col_b']}": b.get("per_row", []) for b in boundaries},
-                  "decision": decision, "substrate_plateau_by_column": {str(c): v for c, v in plateaus.items()}}
-        log(f"[decision] vignetting baseline A/B {np.round(decision['vignetting_baseline_ratio'], 4).tolist()}; "
-            f"steps at {[(s['col_a'], s['col_b']) for s in decision['steps']]}; reference columns {decision['reference_segment'][0]}..{decision['reference_segment'][-1]}; "
-            f"corrected columns {decision['corrected_columns']}")
-        for c in decision["corrected_columns"]:
-            log(f"           gain c{c} = {decision['gains_rgb'][str(c)]}")
+                  "flat_field": ff["info"] if ff else None, "edges": edges, "gains": solution,
+                  "substrate_plateau_by_column_original_tiles": {str(c): v for c, v in plateaus.items()}}
+        log(f"[decision] column steps (> {args.min_step:.1%}): {[(s['col_a'], s['col_b']) for s in solution['column_steps']]}; "
+            f"{solution['tiles_corrected']} tiles get a gain != 1")
         report_path = args.report or (out / "colour_match_report.json" if not args.report_only else data.with_name(data.name + "_colour_match_report.json"))
         if args.report_only:
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
             log(f"[report] {report_path} (nothing corrected)")
             return 0
-        manifest = apply(inv, decision, direction, out, source_dir=data, log=log)
+        manifest = apply(inv, solution, direction, out, source_dir=data, ff=ff, log=log)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         profile = stitch_profile(inv, direction, scale_div=args.scale_div, out_scale=args.out_scale)
@@ -509,7 +727,8 @@ def main(argv=None) -> int:
         profile_path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
         cmd = stitch_command(out, profile_path, no_ai=args.no_ai, workers=args.workers, extra=["--full"] if args.full else None)
         (out / "stitch_command.txt").write_text(" ".join(cmd) + "\n", encoding="utf-8")
-        log(f"[dataset] {out}: {len(manifest['tiles'])} tiles, {len(decision['corrected_columns'])} columns corrected; profile {profile['nominal_vectors']}")
+        n_copies = sum(1 for t in manifest["tiles"] if t["kind"] == "corrected_copy")
+        log(f"[dataset] {out}: {len(manifest['tiles'])} tiles, {n_copies} corrected copies; profile {profile['nominal_vectors']}")
         log("[stitch] " + " ".join(cmd))
         if args.stitch:
             return subprocess.call(cmd, cwd=str(REPO))
