@@ -1,0 +1,10 @@
+run,kind,call,rc,between_points,tile,elapsed_min,local_time,fraction_of_run
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_status,-1,70–71,mosaic_r35_c1.png,4.2–4.6,11:37,0.07
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_status,-1,231–232,mosaic_r19_c4.png,21.8–22.1,11:55,0.24
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_status,-1,405–406,mosaic_r18_c7.png,44.0–44.6,12:17,0.42
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_position,-1,433–434,mosaic_r9_c8.png,48.5–48.7,12:21,0.45
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_position,-1,509–510,mosaic_r20_c9.png,65.9–66.2,12:39,0.53
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_status,-1,602–603,mosaic_r33_c11.png,119.5–119.8,13:32,0.63
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_status,-1,646–647,mosaic_r10_c12.png,129.6–129.9,13:43,0.68
+"2026-09-30 18×53 (954 pts, v3.4 student variant)","read retry, recovered on 1st retry",get_status,-1,887–888,mosaic_r39_c16.png,197.8–198.2,14:51,0.93
+"2026-10-06 16×53 run 1 (efe918e4, 954-1080p-A1)",Y command_movr rc=-1 → stop (no photo),command_movr,-1,755–756,mosaic_r13_c14.png (not taken),≈152 (last kept capture at 149.5),≈16:35,0.89
