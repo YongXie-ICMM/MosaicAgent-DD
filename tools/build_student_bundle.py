@@ -48,7 +48,8 @@ TOP_LEVEL = "MosaicAgent-DD"
 MANIFEST_NAME = "bundle_manifest.json"
 ASSET_MANIFEST = "data/demo/assets.json"
 REQUIRED_LAUNCHERS = ("01_install.bat", "01_install.command", "02_run_layer_demo.bat", "02_run_layer_demo.command",
-                      "03_open_workbench.bat", "03_open_workbench.command")
+                      "03_open_workbench.bat", "03_open_workbench.command", "04_process_handover.bat", "04_process_handover.command",
+                      "acquisition/Auto_Scan/04_pack_handover.bat")
 # Tracked files also surfaced at the top level of the archive so students see them first.
 TOP_LEVEL_COPIES = {"00_STUDENT_GUIDE_zh.pdf": "docs/STUDENT_GUIDE_zh.pdf"}
 EXCLUDED_TOP_LEVEL = {".github", ".gitattributes"}

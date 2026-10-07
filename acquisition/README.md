@@ -81,6 +81,18 @@ are never `latest.json`. Offline tests: `python -m pytest -q acquisition/Auto_Sc
 Validation on the instrument (does the backend expose the controls, do the settings
 survive a reconnect) is still pending.
 
+### Handing a scan day over (added 2026-10-07)
+
+`Auto_Scan/04_pack_handover.bat` runs `pack_handover.py`: it lists the scan sessions under
+`mosaic_photos/`, copies the chosen ones (today's by default) intact into one handover folder
+together with the day's `history/console_logs/`, `shared_history/`, `camera_history/`,
+`colour_calibration/` records and `delivery_manifest.json`, verifies every copied tile against
+the hash the scanner recorded in `events.jsonl`, re-checks the 16 runtime files, and writes
+`handover.json` plus a Chinese README. Options: `--session <stamp>` (repeatable), `--since`,
+`--all`, `--out <dir>`, `--zip`, `--yes`. Runs are never merged or renamed here; the analysis
+side (`tools/handover.py`) assembles them. The runtime files are not modified. Offline tests:
+`python -m pytest -q acquisition/Auto_Scan/test_pack_handover.py`.
+
 ### Camera backend
 
 For a UVC/HDMI capture device, the supplied `Camera_v2.py` uses OpenCV without
