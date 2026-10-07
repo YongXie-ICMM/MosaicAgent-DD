@@ -1,6 +1,6 @@
 # 学生操作说明
 
-MosaicAgent-DD 学生包 · 2026-10-05 版 · 照着做就行
+MosaicAgent-DD 学生包 · 2026-10-07 版 · 照着做就行
 
 > 这本说明只讲"怎么做"。遇到说明里没有的情况，把屏幕拍下来发给老师，不要自己改程序。
 > PDF 版在学生包最外层：`00_STUDENT_GUIDE_zh.pdf`。
@@ -13,11 +13,13 @@ MosaicAgent-DD 学生包 · 2026-10-05 版 · 照着做就行
 2. 双击 `01_install`（只在第一次做）。
 3. 双击 `02_run_layer_demo`，等它跑完。
 4. 双击 `03_open_workbench`，看原图和预测图。
+5. 拿到扫描交接文件夹后：双击 `04_process_handover`，把文件夹拖进窗口，等它跑完，看文件夹里 `analysis\REPORT_zh.md`。
 
 **仪器电脑（接显微镜的 Windows 电脑）**
 
 1. 第一次：双击 `acquisition\Auto_Scan\01_setup.bat`。
 2. 每个扫描日：双击 `acquisition\Auto_Scan\00_white_balance_then_scan.bat`。先对准一块干净的裸衬底做白平衡，再按 `Y` 开始扫描。
+3. 扫完（哪怕中途断过、重跑过）：双击 `acquisition\Auto_Scan\04_pack_handover.bat`，得到一个交接文件夹，整个交给老师。
 
 **三个"不要"**
 
@@ -138,20 +140,42 @@ MosaicAgent-DD 学生包 · 2026-10-05 版 · 照着做就行
 
 中途如果动了灯光、曝光或白平衡，这次扫描作废，重新从 `00_white_balance_then_scan.bat` 开始。
 
-### 9. 扫完要交给老师的东西
+### 9. 扫完要交给老师的东西：一个交接文件夹
 
-1. 整个扫描结果文件夹（原图 + `session.json` + `events.jsonl`）。
-2. `acquisition\Auto_Scan\colour_calibration\` 里当天的那个文件夹。
-3. `acquisition\Auto_Scan\history\console_logs\` 里当天的文件。
-4. 一句话：用的物镜、灯光刻度、相机菜单里改了什么。
+不要再自己挑文件、合并文件夹。扫完当天（不管扫描有没有中断、有没有重跑）：
+
+1. 双击 `acquisition\Auto_Scan\04_pack_handover.bat`。
+2. 它会问放到哪里：直接回车就放在 `acquisition\Auto_Scan\handover\` 里；要直接放到 U 盘就输入 U 盘上的路径（比如 `E:\handover`）。再问要不要顺便压成 zip（`Y` 要，`N` 不要；zip 要多占一倍空间）。
+3. 它会问操作者姓名和备注。备注里写：用的物镜、灯光刻度、相机菜单里改了什么、中途出过什么事（比如"第 755 点报 rc=-1 后重跑"）。
+4. 等它跑完，窗口最后一行是文件夹的位置，名字像 `handover_260128PM_5mg_20261006`。把**整个文件夹**（或同名 zip）交给老师，不要改名、不要删里面的东西。
+
+文件夹里装的是：当天每一轮扫描的原样副本（原图、`session.json`、`events.jsonl`、`sharpness.csv`、程序快照）、控制台记录、采集日志、相机连接记录、白平衡记录、程序清单，以及一份 `handover.json`（每个文件的校验值、每一轮的网格、张数、相机增益、出错记录）。它只复制，不改任何原文件。
+
+如果 `04_pack_handover.bat` 说当天没有扫描，它会列出硬盘上所有的扫描轮次，把要交的轮次名字输进去就行。
 
 ---
 
-## 第三部分　新扫描的图怎么分析
+## 第三部分　新扫描的图怎么分析：双击 `04_process_handover`
 
-1. 在分析电脑上双击 `03_open_workbench`，点 **02 / 图像与拼接**，再点"检查新扫描图片与拼接设置"，选中扫描结果文件夹。
-2. 按页面的提示一步步确认图片大小、重叠、采集设置，页面会生成拼接命令。拼接时 Kimi 会帮忙看图：给对焦不清楚的瓦片投票、同一位置有两张时二选一、抽查接缝。页面上写着"已配置 Kimi"就对了；如果写着"未配置 Kimi"，说明包里缺 `.env`，找老师要内部版学生包，不要自己去申请密钥。
-3. 把页面生成的命令复制到 PowerShell 里运行，等它跑完。后面的层数识别和颜色检查和第一部分一样。颜色提示没有了，说明白平衡做对了；还有提示，就把 `colour_calibration` 里的记录和这批图一起交给老师。
+1. 把交接文件夹（第 9 节打包出来的那个，解压后的）放到分析电脑硬盘上。
+2. 双击 `04_process_handover`，把文件夹拖进窗口回车（或者直接把文件夹拖到 `04_process_handover.bat` 图标上）。
+3. 它会按顺序做七步，每一步的结果都写在交接文件夹的 `analysis\` 里：
+
+   | 步骤 | 做什么 | 结果在哪 |
+   |---|---|---|
+   | verify | 逐个文件对校验值，核对扫描程序没被改过 | `analysis\verify.json` |
+   | assemble | 把几轮扫描按原来的行列号拼成一张完整网格，记下每张来自哪一轮 | `analysis\flat_grid\`、`assemble.json` |
+   | incidents | 把每轮的中断、报错、重启按时间列出来 | `analysis\incidents_zh.md`、`incidents.csv` |
+   | colour | 校正照明不均和每张图的曝光/颜色差 | `analysis\colour_matched\` |
+   | stitch | 拼接（Kimi 帮忙看图） | `analysis\colour_matched\mosaic.png`、`analysis\mosaic_preview.jpg` |
+   | check | 颜色检查：原图和校正后的图与参考衬底颜色比 | `analysis\colour_check.json` |
+   | report | 一份给老师看的报告 | `analysis\REPORT_zh.md` |
+
+   跑一次大约 20–40 分钟（拼接最慢）。中途关掉了，再双击一次：做完的步骤会自动跳过，只接着做没做完的。
+4. 窗口写 `Done` 后，把整个交接文件夹（现在多了 `analysis\`）交给老师，或者只交 `analysis\REPORT_zh.md` 和 `analysis\mosaic_preview.jpg` 先看。
+5. 拼接时写着 `Kimi: 未启用` / `未配置 Kimi`，说明包里缺 `.env`，找老师要内部版学生包，不要自己去申请密钥。
+
+以前的方法（工作台 **02 / 图像与拼接** 里"检查新扫描图片与拼接设置"）还在，只是不用再手工挑文件了。
 
 ---
 
@@ -169,5 +193,8 @@ MosaicAgent-DD 学生包 · 2026-10-05 版 · 照着做就行
 | 白平衡程序说 `Camera opened but delivered no frame` | 相机被别的软件占着。关掉相机厂家的预览软件再试 |
 | 白平衡程序说 `图像尺寸不一致：要求 [1920, 1080]` | 相机输出不是 1920 × 1080。在相机或驱动里改回来，不要让程序缩放 |
 | 想先在没有相机的电脑上试试白平衡程序 | 在 `acquisition\Auto_Scan` 里运行 `python wb_calibrate.py --auto --simulate-camera`，用模拟画面自测。这种记录会放在 `simulation` 子文件夹，不会被当成真的 |
+| `04_pack_handover.bat` 说空间不够 | 文件夹要和原图一样大（几 GB）；换一个空间够的目的地（U 盘、移动硬盘），或者不选 zip |
+| `04_process_handover` 第一步 verify 就停了 | 文件在拷贝过程中坏了或少了。重新从仪器电脑拷一次整个文件夹；确实只是少了无关文件可以加 `--ignore-verify` |
+| `04_process_handover` 说 `flat grid incomplete` | 几轮加起来也没拍全整张网格，缺的位置写在 `analysis\assemble.json` 里；颜色校正和拼接会跳过，把缺的位置补拍后重新打包 |
 
 想了解为什么会有颜色问题，看 `docs\diagnostics\20261005_colour_balance\README.md`（英文）。
