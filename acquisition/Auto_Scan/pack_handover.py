@@ -28,6 +28,7 @@ Usage (on the instrument computer, from ``acquisition/Auto_Scan``):
     python pack_handover.py --today --zip    # unattended
     python pack_handover.py --session 20261006_140512_123456 --session 20261006_170210_654321
     python pack_handover.py --since 2026-10-01 --out E:\\handover
+    python pack_handover.py --today --link   # same disk, no extra space: hard links instead of copies
 """
 from __future__ import annotations
 
@@ -290,6 +291,20 @@ def companions_for(scan_dir: Path, runs: list[dict]) -> dict:
 # ----------------------------------------------------------------------------
 # packing
 # ----------------------------------------------------------------------------
+LINK_MODE = {"link": False}       # --link: hard links instead of copies (same volume only; falls back to copying)
+
+
+def _place(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if LINK_MODE["link"]:
+        try:
+            os.link(src, dst)
+            return
+        except OSError:
+            pass
+    shutil.copy2(src, dst)
+
+
 def _copy_tree(src: Path, dst: Path, files: list[dict], rel_root: Path, log) -> None:
     for root, _dirs, names in os.walk(src):
         for name in sorted(names):
@@ -297,14 +312,12 @@ def _copy_tree(src: Path, dst: Path, files: list[dict], rel_root: Path, log) -> 
             if s.is_symlink():
                 continue
             d = dst / s.relative_to(src)
-            d.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(s, d)
+            _place(s, d)
             files.append({"path": d.relative_to(rel_root).as_posix(), "bytes": d.stat().st_size, "sha256": sha256_file(d)})
 
 
 def _copy_file(src: Path, dst: Path, files: list[dict], rel_root: Path) -> dict:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
+    _place(src, dst)
     rec = {"path": dst.relative_to(rel_root).as_posix(), "bytes": dst.stat().st_size, "sha256": sha256_file(dst)}
     files.append(rec)
     return rec
@@ -329,9 +342,10 @@ def console_log_summary(path: Path, text: str) -> dict:
 
 
 def pack(scan_dir: Path, runs: list[dict], out_root: Path, *, operator: str = "", notes: str = "",
-         make_zip: bool = False, log=print) -> Path:
+         make_zip: bool = False, link: bool = False, log=print) -> Path:
     if not runs:
         raise PackError("No scan session selected")
+    LINK_MODE["link"] = bool(link)
     runs = sorted(runs, key=lambda s: s["stamp"])
     sample = next((s.get("sample_id") for s in runs if s.get("sample_id")), None) or "scan"
     sample_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(sample))[:40]
@@ -346,10 +360,13 @@ def pack(scan_dir: Path, runs: list[dict], out_root: Path, *, operator: str = ""
         + sum(tree_size(p) for p in companions["shared_history"]) + sum(tree_size(p) for p in companions["colour_calibration"])
     out_root.mkdir(parents=True, exist_ok=True)
     free = free_bytes(out_root)
-    if free < needed * (2.1 if make_zip else 1.05) + (200 << 20):
-        raise PackError(f"Not enough free space at {out_root}: need about {human(needed * (2.1 if make_zip else 1.05))}, "
-                        f"free {human(free)}")
-    log(f"[pack] {len(runs)} run(s), {human(needed)} to copy -> {folder}")
+    if link:
+        needed_now = needed * (1.05 if make_zip else 0.0)          # links take no space; the zip still does
+    else:
+        needed_now = needed * (2.1 if make_zip else 1.05)
+    if free < needed_now + (200 << 20):
+        raise PackError(f"Not enough free space at {out_root}: need about {human(needed_now)}, free {human(free)}")
+    log(f"[pack] {len(runs)} run(s), {human(needed)} to {'link' if link else 'copy'} -> {folder}")
     folder.mkdir()
     files: list[dict] = []
     run_records = []
@@ -424,6 +441,7 @@ def pack(scan_dir: Path, runs: list[dict], out_root: Path, *, operator: str = ""
                 "instrument": {"hostname": socket.gethostname(), "platform": platform.platform(), "python": platform.python_version(),
                                "scan_dir": str(scan_dir)},
                 "operator": operator, "notes": notes, "sample_id": sample,
+                "copy_method": "hard_links_where_possible" if link else "copies",
                 "scanner_runtime_check": runtime, "runs": run_records, "console_logs": logs, "shared_history": journals,
                 "camera_history": camera_history, "colour_calibration": calibrations,
                 "totals": {"files": len(files), "bytes": sum(f["bytes"] for f in files)}, "files": files,
@@ -484,6 +502,8 @@ def main(argv=None) -> int:
     parser.add_argument("--operator", default=None, help="who scanned (asked interactively when omitted)")
     parser.add_argument("--notes", default=None, help="free text about the day (asked interactively when omitted)")
     parser.add_argument("--zip", action="store_true", help="also create <folder>.zip beside the folder")
+    parser.add_argument("--link", action="store_true", help="hard-link instead of copying when the destination is on the same disk "
+                                                             "(no extra space; the folder then shares the originals' bytes - zip it or copy it to another disk to hand it over)")
     parser.add_argument("--yes", action="store_true", help="no interactive questions")
     args = parser.parse_args(argv)
     log = lambda m: print(m, flush=True)  # noqa: E731
@@ -519,7 +539,7 @@ def main(argv=None) -> int:
         operator = args.operator if args.operator is not None else ("" if args.yes else _prompt("Operator name / 操作者: "))
         notes = args.notes if args.notes is not None else ("" if args.yes else _prompt("Notes for the teacher (interruptions, settings) / 备注: "))
         out_root = (args.out or (scan_dir / "handover")).resolve()
-        folder = pack(scan_dir, runs, out_root, operator=operator, notes=notes, make_zip=args.zip, log=log)
+        folder = pack(scan_dir, runs, out_root, operator=operator, notes=notes, make_zip=args.zip, link=args.link, log=log)
         log(f"[done] {folder}")
         return 0
     except PackError as exc:

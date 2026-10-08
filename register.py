@@ -341,6 +341,33 @@ def _robust(vals, weights=None, z=3.0):
     return float((v[keep] * w).sum() / w.sum()), int(keep.sum())
 
 
+def decide_segment_offset(acc, min_response=0.25, single_edge_ncc=0.5, offset_margin=0.1):
+    """Row offset of one segment from its horizontal votes: acc maps offset -> NCC values.
+
+    Returns (offset, n_good, mean_ncc). Offsets are ranked by the number of edges at or
+    above min_response, then by mean NCC. Two guards keep the stage's own numbering unless
+    the evidence is real: a single edge only counts when its NCC reaches single_edge_ncc
+    (at the chip edge or on blank tiles the lateral correlations are noise, and one of the
+    seven candidate offsets always happens to pass 0.25), and a non-zero offset must beat
+    the chain hypothesis (offset 0) by offset_margin in mean NCC unless it has more good
+    edges. n_good == 0 tells the caller to inherit the neighbouring segment's offset.
+    """
+    rank = sorted(acc.items(),
+                  key=lambda kv: (-sum(1 for x in kv[1] if x >= min_response),
+                                  -float(np.mean(kv[1]))))
+    best = rank[0][0] if rank else 0
+    nice = sum(1 for x in acc.get(best, []) if x >= min_response)
+    mean_best = float(np.mean(acc[best])) if best in acc else 0.0
+    if nice == 1 and mean_best < single_edge_ncc:
+        nice = 0
+    if best != 0 and 0 in acc:
+        nice0 = sum(1 for x in acc[0] if x >= min_response)
+        mean0 = float(np.mean(acc[0]))
+        if nice0 >= nice and mean_best - mean0 < offset_margin:
+            best, nice, mean_best = 0, nice0, mean0
+    return best, nice, mean_best
+
+
 def _spread(n, k):
     """在 [0, n) 里取 k 个尽量分散的下标，两端各留一点（列首列尾常有暗角）。
 
@@ -360,7 +387,7 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
                 prior=None, verbose=True, *,
                 nominal=None, tol_full=None, coarse_tol_full=None,
                 min_response=0.25, n_probe_v=6, n_probe_h=7,
-                offset_range=3) -> tuple[list[Edge], dict]:
+                offset_range=3, single_edge_ncc=0.5, offset_margin=0.1) -> tuple[list[Edge], dict]:
     """建立列内和列间的所有邻接边。返回 (edges, stats)。
 
     prior / nominal 都是全分辨率像素的 (dx_v, dy_v, dx_h, dy_h)：
@@ -369,6 +396,12 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
 
     被判不可信的边不会被丢掉，而是换成先验位移、权重压到 1e-3。宁可让全局
     解在那里靠先验填空，也不能把图割断 —— 断了就得靠名义网格硬拼分量。
+
+    段的行偏移投票（见下）要有把握才改链上假设：只有一条够格边时它的 NCC 必须
+    达到 single_edge_ncc；最佳偏移比"不偏移"的证据没多出 offset_margin 时沿用
+    不偏移。2026-10-07 的 18×50 扫描里，芯片边缘上两张只剩一半衬底的瓦片各自
+    断成单元素段，被一条 NCC 0.27 的边投到了 -2/-3 行，造成空洞和错位重影；
+    其余同类瓦片都是 n_good=0 而被正确继承。
     """
     tiles = list(tiles)
     n = len(tiles)
@@ -557,12 +590,7 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
                 acc.setdefault(o, []).append(r[2])
             # 先比"够格的边有几条"再比均值：某些 offset 只剩一两行可比，
             # 光看均值会被少数高分带偏
-            rank = sorted(acc.items(),
-                          key=lambda kv: (-sum(1 for x in kv[1] if x >= min_response),
-                                          -float(np.mean(kv[1]))))
-            best = rank[0][0] if rank else 0
-            nice = sum(1 for x in acc.get(best, []) if x >= min_response)
-            votes[sid] = (best, nice, float(np.mean(acc[best])) if best in acc else 0.0)
+            votes[sid] = decide_segment_offset(acc, min_response, single_edge_ncc, offset_margin)
 
         # 一张糊片自己就会断成一个单元素段，它跟左邻列的相关全是噪声，
         # 这时候投票没有意义，硬取 argmax 就会把它挪错一行。没有任何一条

@@ -98,6 +98,18 @@ def test_pack_zip_is_stored_and_checksummed(scan, tmp_path):
         assert all(i.compress_type == zipfile.ZIP_STORED for i in zf.infolist())
 
 
+def test_link_mode_shares_the_originals_bytes(scan, tmp_path):
+    import os
+    out = tmp_path / "out"
+    folder = ph.pack(scan["scan_dir"], ph.list_sessions(scan["scan_dir"])[:1], out, link=True, log=lambda *_: None)
+    manifest = json.loads((folder / "handover.json").read_text(encoding="utf-8"))
+    assert manifest["copy_method"] == "hard_links_where_possible"
+    run = folder / "runs" / scan["stamp1"]
+    tile = next(p for p in run.iterdir() if p.name.startswith("mosaic_r"))
+    assert os.stat(tile).st_ino == os.stat(scan["run1"] / tile.name).st_ino
+    assert ph.pack(scan["scan_dir"], ph.list_sessions(scan["scan_dir"])[:1], tmp_path / "out2", log=lambda *_: None)  # copies still default
+
+
 def test_refuses_when_disk_space_is_short(scan, tmp_path, monkeypatch):
     monkeypatch.setattr(ph, "free_bytes", lambda _p: 0)
     with pytest.raises(ph.PackError, match="free space"):

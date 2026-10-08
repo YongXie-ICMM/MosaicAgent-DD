@@ -480,7 +480,7 @@ def _incidents_md(res: dict) -> str:
     lines.append("|---|---|---|---|---|---|---|")
     for r in res["runs"]:
         lines.append(f"| {r['run']} | {r['status']} | {r['started_at_utc']} | {r['finished_at_utc']} | {r['captures']} / {r['planned']} | "
-                     f"{r['duration_min']} | {(r.get('camera') or {}).get('gain')} |")
+                     f"{r['duration_min']} | {_readback((r.get('camera') or {}).get('gain'))} |")
     if res["restart_gaps"]:
         lines += ["", "重启间隔：" + "；".join(f"{g['from_run']} → {g['to_run']}: {g['gap_min']} min" for g in res["restart_gaps"])]
     lines += ["", "| 轮次 | 来源 | 事件 | 距开始 (min) | 第几点 / 计划 | 行,列 | 内容 |", "|---|---|---|---|---|---|---|"]
@@ -576,13 +576,56 @@ def step_stitch(ctx: Context) -> dict:
     summary = state.get("summary", {})
     diag = (state.get("register") or {}).get("diag", {})
     preview = _preview(mosaic, ctx.analysis / "mosaic_preview.jpg", 8)
+    placement = _placement_check(out / "_stitch_work", ctx.result("assemble") or {})
     result = {"schema_version": SCHEMA_VERSION, "skipped": False, "command": cmd, "mosaic": str(mosaic), "mosaic_sha256": sha256_file(mosaic),
+              "placement_check": placement,
               "preview": str(preview), "tiles_total": summary.get("tiles_total"), "tiles_used": summary.get("tiles_used"),
               "dropped": summary.get("dropped"), "rescued": len(summary.get("rescued") or []), "residual_rms_px": diag.get("residual_rms"),
               "n_components": diag.get("n_components"), "seconds": summary.get("seconds"), "kimi": summary.get("kimi"),
               "seam_inspection": state.get("inspect"), "render": state.get("render")}
     ctx.log(f"[stitch] {summary.get('tiles_used')}/{summary.get('tiles_total')} tiles, residual {diag.get('residual_rms')} px, {summary.get('seconds')} s")
     return result
+
+
+def _placement_check(work: Path, assembled: dict, *, limit_frac: float = 0.25) -> dict:
+    """Solved tile positions against a rigid grid model (origin + col*h + row*v): a tile placed rows away
+    from where the stage numbering puts it shows up here without opening the mosaic."""
+    pos_path, tid_path = work / "positions.npy", work / "positions_tids.json"
+    if not pos_path.is_file():
+        return {"checked": False, "reason": "positions.npy missing"}
+    pos = np.load(pos_path)
+    grid = assembled.get("grid") or {}
+    nx, ny = grid.get("nx"), grid.get("ny")
+    if tid_path.is_file():
+        tids = json.loads(tid_path.read_text(encoding="utf-8"))
+        rc = [re.search(r"mosaic_r(\d+)_c(\d+)", t) for t in tids]
+        if len(tids) != len(pos) or any(m is None for m in rc):
+            return {"checked": False, "reason": "tile ids do not match positions"}
+        rows = np.array([int(m.group(1)) for m in rc]); cols = np.array([int(m.group(2)) for m in rc])
+        names = [t.split("/")[-1] for t in tids]
+        order = "positions_tids.json"
+    elif nx and ny and len(pos) == nx * ny:
+        cols = np.repeat(np.arange(nx), ny); rows = np.tile(np.arange(ny), nx)          # scan_dataset order: column-major
+        names = [f"mosaic_r{r}_c{c}.png" for r, c in zip(rows, cols)]
+        order = "assumed column-major (complete grid, no tile ids saved)"
+    else:
+        return {"checked": False, "reason": "no tile ids and the grid is not complete"}
+    A = np.stack([np.ones(len(pos)), cols, rows], axis=1).astype(float)
+    coef, *_ = np.linalg.lstsq(A, pos, rcond=None)
+    res = pos - A @ coef
+    dev = np.hypot(res[:, 0], res[:, 1])
+    tile_w, tile_h = 1920, 1080
+    sample_w = (assembled.get("acquisition_check") or {}).get("image_size")
+    if sample_w and len(sample_w) == 2:
+        tile_w, tile_h = sample_w
+    limit = limit_frac * min(tile_w, tile_h)
+    bad = np.flatnonzero(dev > limit)
+    outliers = [{"tile": names[i], "stitched_col": int(cols[i]), "row": int(rows[i]), "deviation_px": round(float(dev[i]), 1),
+                 "dx": round(float(res[i, 0]), 1), "dy": round(float(res[i, 1]), 1), "rows_off": round(float(res[i, 1] / coef[2][1]), 2) if coef[2][1] else None}
+                for i in sorted(bad, key=lambda i: -dev[i])]
+    return {"checked": True, "order": order, "tiles": int(len(pos)), "grid_model": {"origin": coef[0].round(1).tolist(), "h": coef[1].round(1).tolist(), "v": coef[2].round(1).tolist()},
+            "deviation_px": {"median": round(float(np.median(dev)), 1), "p95": round(float(np.percentile(dev, 95)), 1), "max": round(float(dev.max()), 1)},
+            "limit_px": round(limit, 1), "outliers": outliers, "ok": len(bad) == 0}
 
 
 def _preview(mosaic: Path, target: Path, div: int) -> Path:
@@ -628,9 +671,19 @@ def step_check(ctx: Context) -> dict:
                 rec2 = cd.colour_check(corrected_dir / corrected_name[p.name], reference)
                 corrected.append({"tile": corrected_name[p.name], "verdict": rec2.get("verdict"), "gain_rgb": rec2.get("gain_rgb"),
                                   "observed_median_rgb": rec2["observed"]["median_rgb"]})
+        def split_gain(items):
+            gains = np.array([o["gain_rgb"] for o in items if o.get("gain_rgb")], np.float64)
+            if not len(gains):
+                return None
+            med = np.median(gains, axis=0)
+            brightness = float(np.exp(np.mean(np.log(med))))                 # common factor of the three channels
+            balance = med / brightness
+            return {"median_gain_rgb": med.round(4).tolist(), "brightness_gain": round(brightness, 4),
+                    "balance_gain_rgb": balance.round(4).tolist(), "balance_max_abs_deviation": round(float(np.max(np.abs(balance - 1))), 4)}
         per_run.append({"run": run["folder"], "checked": len(originals), "original": cd.summarize([{"verdict": o["verdict"], "gain_rgb": o["gain_rgb"]} for o in originals]),
-                        "original_tiles": originals, "corrected": cd.summarize([{"verdict": o["verdict"], "gain_rgb": o["gain_rgb"]} for o in corrected]) if corrected else None,
-                        "corrected_tiles": corrected})
+                        "original_split": split_gain(originals), "original_tiles": originals,
+                        "corrected": cd.summarize([{"verdict": o["verdict"], "gain_rgb": o["gain_rgb"]} for o in corrected]) if corrected else None,
+                        "corrected_split": split_gain(corrected) if corrected else None, "corrected_tiles": corrected})
     calibrations = ctx.manifest.get("colour_calibration") or []
     result = {"schema_version": SCHEMA_VERSION, "reference": {"mean_rgb": reference["mean_rgb"], "tolerance_fraction": reference["tolerance_fraction"]} if reference else None,
               "runs": per_run, "white_balance_records": calibrations,
@@ -643,6 +696,15 @@ def step_check(ctx: Context) -> dict:
 # ----------------------------------------------------------------------------
 # step 7: report
 # ----------------------------------------------------------------------------
+def _readback(value):
+    """A camera readback as a short string: plain numbers as they are, {'value','status'} records by their value."""
+    if isinstance(value, dict):
+        if value.get("value") is None:
+            return value.get("status", "unavailable")
+        return f"{value['value']} ({value.get('status', '')})".replace(" ()", "")
+    return value
+
+
 def _fmt(value, nd=4):
     """Round floats (also inside lists / dicts) for the human report."""
     if isinstance(value, float):
@@ -666,12 +728,18 @@ def step_report(ctx: Context) -> dict:
     if verify:
         rt = verify.get("scanner_runtime") or {}
         L.append(f"- 文件：{verify.get('files_checked')}/{verify.get('files_listed')} 个与清单一致，缺失 {len(verify.get('missing', []))}，不一致 {len(verify.get('mismatched', []))}。")
-        L.append(f"- 扫描程序 16 个运行文件：仪器端自检 {'通过' if (rt.get('packed_check') or {}).get('ok') else '未通过/未检查'}；与仓库记录{'一致' if rt.get('matches_repository') else '不一致或未比对'}。")
+        pc = rt.get("packed_check") or {}
+        detail = ""
+        if pc and not pc.get("ok"):
+            detail = f"（清单 {pc.get('release')}；与清单不符 {pc.get('mismatched')}，缺 {len(pc.get('missing') or [])} 个）"
+        L.append(f"- 扫描程序运行文件（{pc.get('files_checked', '?')} 个）：仪器端自检 {'通过' if pc.get('ok') else '未通过'}{detail}；"
+                 f"与仓库的 954-1080p-A1 记录{'一致' if rt.get('matches_repository') else '不一致'}"
+                 + (f"（不同的文件 {len(rt.get('differing_files') or [])} 个）" if rt.get('differing_files') else "") + "。")
         for r in verify.get("runs", []):
             L.append(f"- 轮次 {r['folder']}：记录 {r.get('captures_recorded')} 张，哈希不符 {len(r.get('tiles_hash_mismatch', []))}，缺图 {len(r.get('tiles_missing', []))}。")
     L += ["", "## 2. 轮次与中断", ""]
     for r in incidents.get("runs", []):
-        L.append(f"- {r['run']}：{r['status']}，{r['captures']}/{r['planned']} 张，{r['duration_min']} min，相机增益 {(r.get('camera') or {}).get('gain')}。")
+        L.append(f"- {r['run']}：{r['status']}，{r['captures']}/{r['planned']} 张，{r['duration_min']} min，相机增益 {_readback((r.get('camera') or {}).get('gain'))}。")
     for g in incidents.get("restart_gaps", []):
         L.append(f"- 重启间隔 {g['from_run']} → {g['to_run']}：{g['gap_min']} min。")
     fatal = [i for i in incidents.get("incidents", []) if i["event"] in ("move_failed", "capture_failed", "acquisition_mode_mismatch")]
@@ -706,6 +774,14 @@ def step_report(ctx: Context) -> dict:
     elif stitch:
         L.append(f"- {stitch.get('tiles_used')}/{stitch.get('tiles_total')} 张参与，丢弃 {len(stitch.get('dropped') or [])}，救回 {stitch.get('rescued')}，配准残差 RMS {_fmt(stitch.get('residual_rms_px'), 2)} px，连通块 {stitch.get('n_components')}，{_fmt(stitch.get('seconds'), 0)} s。")
         L.append(f"- Kimi：{stitch.get('kimi')}。")
+        pc = stitch.get("placement_check") or {}
+        if not pc and stitch.get("mosaic"):
+            pc = _placement_check(Path(stitch["mosaic"]).parent / "_stitch_work", assembled)
+        if pc.get("checked"):
+            L.append(f"- 位置核对（与刚性网格模型比）：偏差中位 {pc['deviation_px']['median']} px，95 分位 {pc['deviation_px']['p95']} px，最大 {pc['deviation_px']['max']} px；"
+                     + ("**没有**超过 {} px 的瓦片。".format(pc['limit_px']) if pc.get("ok") else
+                        f"**{len(pc['outliers'])} 张超过 {pc['limit_px']} px**：" + "；".join(f"{o['tile']} 偏 {o['deviation_px']} px（约 {o['rows_off']} 行）" for o in pc['outliers'][:6])
+                        + "——这些瓦片在拼接图上会错位、留洞或出现半透明重影，请看预览图相应位置。"))
         L.append(f"- 拼接图：`{Path(stitch['mosaic']).relative_to(ctx.folder)}`（sha256 {stitch.get('mosaic_sha256', '')[:12]}…），预览 `analysis/mosaic_preview.jpg`。")
     L += ["", "## 6. 颜色检查（参考衬底颜色）", ""]
     if check:
@@ -714,6 +790,14 @@ def step_report(ctx: Context) -> dict:
         for r in check.get("runs", []):
             o, c = r.get("original") or {}, r.get("corrected") or {}
             L.append(f"- {r['run']}：原图 {o.get('verdict')}" + (f"，校正后 {c.get('verdict')}" if c else "") + f"（抽查 {r.get('checked')} 张）。")
+            sp = r.get("original_split")
+            if sp:
+                tol = (check.get("reference") or {}).get("tolerance_fraction")
+                g = sp["brightness_gain"]
+                pct = (1 - 1 / g) * 100 if g > 1 else (1 / g - 1) * 100
+                L.append(f"  - 拆开看：整体亮度需 ×{g}（裸衬底比参考{'暗' if g > 1 else '亮'} {pct:.0f} %），"
+                         f"色彩平衡 {sp['balance_gain_rgb']}，平衡偏差 {sp['balance_max_abs_deviation'] * 100:.1f} %"
+                         + (f"（{'在' if tol and sp['balance_max_abs_deviation'] <= tol else '超出'} {tol * 100:.0f} % 容差）" if tol else "") + "。")
         for w in check.get("white_balance_records", []):
             L.append(f"- 白平衡记录 {w.get('folder')}：calibrated={w.get('calibrated')}，{w.get('verdict')}，读数 {w.get('observed_mean_rgb')}。")
     L += ["", "## 7. 文件", "",
