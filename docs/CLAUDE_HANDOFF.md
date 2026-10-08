@@ -2,6 +2,8 @@
 
 Date: 2026-10-05. Start with [README](../README.md) and [resolution mapping](RESOLUTION_AND_INFERENCE.md).
 
+Updated 2026-10-08: the current state, the evidence from the 260128 and 261002AM scans, the known issues and an ordered backlog for the next review round are in [CHATGPT_HANDOFF_zh.md](CHATGPT_HANDOFF_zh.md) (Chinese, with a prompt for ChatGPT/Codex) and in the README's Status section; [AGENTS.md](../AGENTS.md) holds the rules for any coding agent. The priority list below is the 2026-10-05 plan for the layer-inference gap and still applies to that gap.
+
 ## Current state
 
 - This is the clean public DD repository, `YongXie-ICMM/MosaicAgent-DD`. DD covers acquisition, stitching, semantic layer number and optical spectroscopy. Do not add domain/instance annotation or twist-angle inference.
