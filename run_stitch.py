@@ -975,6 +975,7 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     log(f"  全局求解残差 RMS {diag.get('residual_rms'):.2f} px，"
         f"连通分量 {diag.get('n_components')}")
     np.save(work / "positions.npy", pos)
+    (work / "positions_tids.json").write_text(json.dumps([t.tid for t in cand], ensure_ascii=False), encoding="utf-8")
     st.d["register"] = {"stats": rstats, "diag": {k: v for k, v in diag.items()
                                                   if k != "per_edge_residual"}}
     st.mark("register")
