@@ -387,7 +387,8 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
                 prior=None, verbose=True, *,
                 nominal=None, tol_full=None, coarse_tol_full=None,
                 min_response=0.25, n_probe_v=6, n_probe_h=7,
-                offset_range=3, single_edge_ncc=0.5, offset_margin=0.1) -> tuple[list[Edge], dict]:
+                offset_range=3, single_edge_ncc=0.5, offset_margin=0.1,
+                row_policy="infer") -> tuple[list[Edge], dict]:
     """建立列内和列间的所有邻接边。返回 (edges, stats)。
 
     prior / nominal 都是全分辨率像素的 (dx_v, dy_v, dx_h, dy_h)：
@@ -402,9 +403,27 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
     不偏移。2026-10-07 的 18×50 扫描里，芯片边缘上两张只剩一半衬底的瓦片各自
     断成单元素段，被一条 NCC 0.27 的边投到了 -2/-3 行，造成空洞和错位重影；
     其余同类瓦片都是 n_good=0 而被正确继承。
+
+    row_policy="infer" preserves the historical serpentine row reconstruction.
+    "recorded-grid" uses integer, unique per-column nominal_row identities from a
+    physical-coordinate acquisition. Correlations refine pixel displacements but
+    cannot reverse, duplicate or compact those recorded rows.
     """
     tiles = list(tiles)
     n = len(tiles)
+    if row_policy not in ("infer", "recorded-grid"):
+        raise ValueError(f"Unknown registration row_policy: {row_policy!r}")
+    recorded_grid = row_policy == "recorded-grid"
+    if recorded_grid:
+        identities = set()
+        for t in tiles:
+            row = t.nominal_row
+            if isinstance(row, (bool, np.bool_)) or not isinstance(row, (int, np.integer)):
+                raise ValueError(f"recorded-grid requires integer nominal_row: {t.tid}={row!r}")
+            identity = (t.col, int(row))
+            if identity in identities:
+                raise ValueError(f"Duplicate recorded-grid row in column {t.col}: {row}")
+            identities.add(identity)
     workers = workers or max(1, (os.cpu_count() or 4) - 2)
     sd = float(scale_div)
     nom = np.array(nominal if nominal is not None else NOMINAL_FULL, float) / sd
@@ -424,6 +443,21 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
     if shape is None:
         raise RuntimeError("缓存里一张缩略图都读不到，先跑 tiles.build_cache")
     Hs, Ws = shape
+
+    def _recorded_measure(a, b, vector, search_tol):
+        delta = int(tiles[b].nominal_row) - int(tiles[a].nominal_row)
+        expected = (delta * vector[0], delta * vector[1])
+        if abs(expected[0]) >= Ws or abs(expected[1]) >= Hs:
+            # Missing rows can span beyond the field of view. Retain their true
+            # spacing with a weak prior edge instead of searching an alias peak.
+            return expected[0], expected[1], 0.0, -1
+        result = _measure_multi(P[a], P[b], [expected], search_tol)
+        if math.hypot(result[0] - expected[0], result[1] - expected[1]) > search_tol * 1.5:
+            # The phase-correlation helper can return an unconstrained peak when
+            # its congruent candidates miss the search window. Such a peak must
+            # not become a recorded-grid prior or a reverse/zero-step identity.
+            return expected[0], expected[1], 0.0, -1
+        return result
 
     # 搜索半径按缩略图自身尺寸定，不能按 TILE_H/scale_div 推 ——
     # 合成测试和真数据的 scale_div 不一样，写死一定有一边太松或太紧。
@@ -463,6 +497,10 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
                 vp.append((s[r], s[r + 1]))
 
         def _mv(p):
+            if recorded_grid:
+                r = _recorded_measure(p[0], p[1], nom[:2], coarse_tol)
+                delta = abs(int(tiles[p[1]].nominal_row) - int(tiles[p[0]].nominal_row))
+                return r[0] / delta, r[1] / delta, r[2], r[3]
             return _measure_multi(P[p[0]], P[p[1]],
                                   [(nom[0], nom[1]), (-nom[0], -nom[1])], coarse_tol)
 
@@ -486,7 +524,7 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
                 rb.setdefault(tiles[k].nominal_row, []).append(k)
             for r in _spread(len(ca["seq"]), 4):
                 i = ca["seq"][r]
-                for off in (-2, -1, 0, 1, 2):
+                for off in ((0,) if recorded_grid else (-2, -1, 0, 1, 2)):
                     for j in rb.get(tiles[i].nominal_row + off, []):
                         hp.append((i, j))
 
@@ -523,6 +561,8 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
 
     def _ml(job):
         _, a, b = job
+        if recorded_grid:
+            return _recorded_measure(a, b, v_vec, tol)
         return _measure_multi(P[a], P[b],
                               [(v_vec[0], v_vec[1]), (-v_vec[0], -v_vec[1]), (0.0, 0.0)],
                               tol)
@@ -534,8 +574,10 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
     link_info: dict[tuple[int, int], dict] = {}
     for (ci, a, b), (dx, dy, v, kk) in zip(links, rl):
         ok = v >= min_response and kk >= 0
+        step = ((int(tiles[b].nominal_row) - int(tiles[a].nominal_row))
+                if recorded_grid else STEP_OF[kk]) if ok else None
         link_info[(a, b)] = {"ci": ci, "dx": dx, "dy": dy, "ncc": v,
-                             "step": STEP_OF[kk] if ok else None, "ok": ok}
+                             "step": step if ok else None, "ok": ok}
 
     # 链积分 -> 列内相对行号 + 段划分
     for c in cols:
@@ -552,7 +594,8 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
                 cur += li["step"]
             rows[b], seg[b] = cur, sid
         lo = min(rows.values())
-        c["row_prov"] = {k: rows[k] - lo for k in s}     # 列内暂定行号，最小为 0
+        c["row_prov"] = ({k: int(tiles[k].nominal_row) for k in s} if recorded_grid
+                         else {k: rows[k] - lo for k in s})
         c["seg"] = seg
         c["n_seg"] = sid + 1
 
@@ -575,6 +618,15 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
             members.setdefault(cb["seg"][k], []).append(k)
 
         cb["row_abs"], cb["seg_offset"] = {}, {}
+        if recorded_grid:
+            cb["row_abs"] = dict(cb["row_prov"])
+            cb["seg_offset"] = {sid: 0 for sid in members}
+            for sid, mem in sorted(members.items()):
+                seg_report.append({"col": cb["col"], "seg": sid, "size": len(mem),
+                                   "offset": 0, "how": "recorded-grid", "n_good": 0,
+                                   "ncc_mean": None,
+                                   "tids": [tiles[k].tid for k in mem] if len(mem) <= 4 else None})
+            continue
         votes = {}
         for sid, mem in sorted(members.items()):
             probe = [mem[t] for t in _spread(len(mem), n_probe_h)]
@@ -762,6 +814,7 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
     resp = np.array([e.response for e in edges], float)
     stats = {
         "scale_div": scale_div,
+        "row_policy": row_policy,
         "n_tiles": n,
         "n_missing": len(missing),
         "missing_tids": [tiles[k].tid for k in missing],
@@ -775,9 +828,9 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
         "measured_dy": float(mdyv),             # 列内 y 步距
         "measured_dx_v": float(mdxv),           # 列内 x 漂移（台面倾斜）
         "measured_dy_h": float(mdyh),           # 列间 y 漂移
-        "measured_overlap_x_px": float(TILE_W - mdxh),
+        "measured_overlap_x_px": float(TILE_W - abs(mdxh)),
         "measured_overlap_y_px": float(TILE_H - mdyv),
-        "nominal_overlap_x_px": float(TILE_W - NOMINAL_FULL[2]),
+        "nominal_overlap_x_px": float(TILE_W - abs(NOMINAL_FULL[2])),
         "nominal_overlap_y_px": float(TILE_H - NOMINAL_FULL[1]),
         "n_used_v": nv_used, "n_used_h": nh_used,
         "n_edges": len(edges),
@@ -801,7 +854,7 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
         if len(resp) else {},
     }
     _log(verbose, f"[register] 实测 dy={mdyv:.1f} dx={mdxh:.1f} -> "
-                  f"纵向重叠 {TILE_H - mdyv:.1f} px, 横向重叠 {TILE_W - mdxh:.1f} px; "
+                  f"纵向重叠 {TILE_H - mdyv:.1f} px, 横向重叠 {TILE_W - abs(mdxh):.1f} px; "
                   f"拒绝 {len(rejected)}/{len(edges)}")
     return edges, stats
 

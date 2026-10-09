@@ -333,6 +333,9 @@ def inspect_tiles(tiles):
 def make_run_binding(resolved, inventory, acquisition=None):
     values = {key: resolved[key] for key in ("profile", "scale_div", "out_scale", "full")}
     values.update(schema_version=1, input_fingerprint=inventory["fingerprint"])
+    # Keep legacy bindings compatible, but never reuse them for grid protection.
+    if resolved.get("grid_policy", "legacy") != "legacy":
+        values["grid_policy"] = resolved["grid_policy"]
     # Preserve historical bindings byte-for-byte when no acquisition record exists.
     if acquisition and acquisition.get("present"):
         values["acquisition_fingerprint"] = _digest(acquisition)
