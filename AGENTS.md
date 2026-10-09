@@ -42,7 +42,9 @@ Before editing grid registration, QC coverage or rendering, read
 Preserve validated acquisition identities independently of correlation scores;
 keep recorded-grid and historical inferred layouts distinct. Check actual
 renderer IDs and load failures, including partial-band failures, rather than
-selected counts alone. A rerun must invalidate earlier success before it can fail.
+selected counts alone. After preflight accepts a run, invalidate earlier success
+at the start of the processing pipeline. A preflight rejection preserves the
+previous bound state; handover cache/report lifecycle needs its own validation.
 
 For a newly discovered stitching failure, preserve a reproducible input, state
 the violated invariant, add a regression for the failure transition, then compare
