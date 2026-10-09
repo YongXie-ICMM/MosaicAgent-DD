@@ -381,6 +381,9 @@ def render(tiles, positions, out_path, out_scale=1 / 8, cache_dir=None,
     carry_bytes 是"跨条带瓦片缓存"的内存预算。跨界瓦片留到下一条带复用，
     可以把全分辨率下的解码次数从约 1.9 倍压回 1.0 倍；预算用完就退化成
     重新解码，只慢不错。
+
+    The returned tile IDs preserve input order. Missing positions include
+    absent and non-finite coordinates; failed loads have a valid position.
     """
     if not tiles:
         raise ValueError("tiles 为空")
@@ -547,6 +550,9 @@ def render(tiles, positions, out_path, out_scale=1 / 8, cache_dir=None,
     return {"out_w": out_w, "out_h": out_h, "n_placed": len(contributed),
             "path": os.path.abspath(out_path), "n_bands": n_bands,
             "n_failed_loads": len(failed), "n_decodes": n_decode,
+            "rendered_tids": [t.tid for i, (t, _, _) in enumerate(placed) if i in contributed],
+            "failed_load_tids": [t.tid for i, (t, _, _) in enumerate(placed) if i in failed],
+            "missing_position_tids": [t.tid for t, p in zip(tiles, pos) if p is None],
             "origin": (x0, y0), "origin_out": (ox_min, oy_min),
             "out_scale": float(out_scale)}
 
