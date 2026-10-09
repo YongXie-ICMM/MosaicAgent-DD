@@ -34,3 +34,18 @@ CI ("Offline source checks", `.github/workflows/offline-tests.yml`) runs the sam
 - Commit messages: an imperative summary line, then what changed and why, with numbers from real data where available.
 - Student-facing text is plain Chinese. After editing `docs/STUDENT_GUIDE_zh.md`, re-render the PDF with `python tools/build_student_guide_pdf.py`; the owner rebuilds bundles with `python tools/build_student_bundle.py`.
 - Keep `README.md`, `README_zh.md` and `docs/CLAUDE_HANDOFF.md` consistent with behaviour changes.
+
+## Stitching robustness lessons
+
+Before editing grid registration, QC coverage or rendering, read
+[the 261008PM failure and controlled fix](docs/diagnostics/20261009_recorded_grid_stitching.md).
+Preserve validated acquisition identities independently of correlation scores;
+keep recorded-grid and historical inferred layouts distinct. Check actual
+renderer IDs and load failures, including partial-band failures, rather than
+selected counts alone. A rerun must invalidate earlier success before it can fail.
+
+For a newly discovered stitching failure, preserve a reproducible input, state
+the violated invariant, add a regression for the failure transition, then compare
+the same inputs before and after. Include sparse/blank content and failure paths
+when relevant. Retain the legacy control and append the evidenced lesson to the
+diagnostic/handoff records so later changes cannot silently reintroduce it.
