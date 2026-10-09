@@ -284,7 +284,7 @@ def step_conflict(ts, cache_dir, conflicts, pool: KA.AgentPool | None, st: State
 
 
 # ------------------------------------------------------------------ 5b 救回
-def step_rescue(ts, drop: set, positions, st: State, min_cover=0.55):
+def step_rescue(ts, drop: set, positions, st: State, min_cover=0.55, *, policy="legacy"):
     """把"丢了就会留洞"的瓦片救回来。
 
     质检判虚焦是对的，但**丢弃的前提是别人能补上这块地方**。实测 Figure 3a
@@ -294,9 +294,25 @@ def step_rescue(ts, drop: set, positions, st: State, min_cover=0.55):
 
     论文图里糊一点远好过一个白洞，所以规则是：一张被判丢弃的瓦片，
     若它的画幅有超过 (1-min_cover) 的面积没有任何保留瓦片覆盖，就救回来。
+    ``legacy`` keeps the original coverage threshold. ``preserve-grid`` retains
+    every selected grid tile nominated for dropping, without changing its QC
+    verdict or trusting potentially overlapping registration coordinates.
     """
+    if policy not in ("legacy", "preserve-grid"):
+        raise ValueError(f"Unknown coverage policy {policy!r}; expected legacy or preserve-grid")
+    st.d["coverage_policy"] = policy
     if not drop:
+        st.d["rescue"] = []
+        st.mark("rescue")
         return set()
+    if policy == "preserve-grid":
+        rescued = {t.tid for t in ts if t.tid in drop}
+        for tid in sorted(rescued):
+            log(f"    coverage-policy rescue (preserve-grid): {tid}; QC verdict retained")
+        log(f"  覆盖策略 preserve-grid：救回 {len(rescued)} 张选中瓦片，保留质检记录")
+        st.d["rescue"] = sorted(rescued)
+        st.mark("rescue")
+        return rescued
     keep_idx = [i for i, t in enumerate(ts) if t.tid not in drop]
     drop_idx = [i for i, t in enumerate(ts) if t.tid in drop]
     W, H = T.TILE_W, T.TILE_H
@@ -840,6 +856,18 @@ def _layout_only(args, data_dir, work):
 
 # ------------------------------------------------------------------ main
 
+def resolve_grid_policy(requested, source):
+    """Trust recorded rows only for the completely validated scanner flat grid."""
+    if requested not in ("auto", "preserve", "legacy"):
+        raise SP.ProfileError(f"Unknown grid policy: {requested}")
+    if requested == "preserve" and source != "flat-physical-grid":
+        raise SP.ProfileError("--grid-policy preserve requires a complete mosaic_r<row>_c<col> grid. "
+                              "Use auto or legacy for acquisition-order layouts.")
+    if requested == "auto":
+        return "preserve" if source == "flat-physical-grid" else "legacy"
+    return requested
+
+
 def main():
     ap = argparse.ArgumentParser(description="大面积显微拼接（Kimi 辅助）")
     ap.add_argument("--data", required=True, help="放 zip 的数据目录")
@@ -862,6 +890,8 @@ def main():
     ap.add_argument("--full", action="store_true", help="渲染时读原图而不是缓存")
     ap.add_argument("--force", action="store_true", help="忽略已有 state，从头跑")
     ap.add_argument("--stitch-profile", help="图像尺寸与原图像素位移标定 JSON")
+    ap.add_argument("--grid-policy", choices=("auto", "preserve", "legacy"), default="auto",
+                    help="auto：完整扫描网格保留记录行号及全部格位；legacy：旧版推行与覆盖救回")
     ap.add_argument("--input-preflight", help="Prepared setup preflight.json; recheck its input and metadata binding before execution")
     ap.add_argument("--preflight-only", action="store_true",
                     help="只读检查所有原图尺寸、profile 和工作目录；必须配合 --no-ai")
@@ -886,6 +916,7 @@ def main():
         ts, layout, source = _preflight_scan(data_dir, work, args.layout, args.auto_layout)
         inventory = SP.inspect_tiles(ts)
         resolved = SP.resolve_profile(profile, inventory, args.scale_div, args.out_scale, args.full)
+        resolved["grid_policy"] = resolve_grid_policy(args.grid_policy, source)
         acquisition, acquisition_warnings = inspect_acquisition(
             data_dir, inventory, "flat-grid" if source == "flat-physical-grid" else source)
         if args.input_preflight:
@@ -900,7 +931,9 @@ def main():
     except (SP.ProfileError, T.LayoutError, OSError, ValueError, zipfile.BadZipFile) as exc:
         stop(f"Preflight failed: {exc}")
     args.scale_div, args.out_scale = resolved["scale_div"], resolved["out_scale"]
+    args.grid_policy = resolved["grid_policy"]
     report = _preflight_report(resolved, inventory, binding, source, acquisition)
+    report["grid_policy"] = args.grid_policy
     for warning in resolved["warnings"] + acquisition_warnings:
         log(f"WARNING: {warning}")
     log(f"Preflight: {inventory['tile_count']} tiles, native {inventory['image_size']}, "
@@ -925,7 +958,9 @@ def main():
             acquisition, acquisition_warnings = inspect_acquisition(data_dir, inventory, "validated-layout")
             binding = SP.make_run_binding(resolved, inventory, acquisition)
             source = "validated-layout"
+            resolved["grid_policy"] = args.grid_policy = "legacy"
             report = _preflight_report(resolved, inventory, binding, source, acquisition)
+            report["grid_policy"] = args.grid_policy
         except (SP.ProfileError, T.LayoutError) as exc:
             stop(f"Preflight failed: {exc}")
     elif layout is not None and args.layout:
@@ -936,6 +971,7 @@ def main():
         st.d = {}  # The binding check already passed; --force cannot bypass it.
     st.d["run_binding"] = binding
     st.d["preflight"] = report
+    st.d["grid_policy"] = args.grid_policy
     st.d["layout"] = {"used": layout is not None, "source": source,
                       "file": str(layout_path(work)) if layout is not None else None}
     st.save()
@@ -948,6 +984,12 @@ def main():
 
 
 def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
+    # This pipeline reruns every stage. Invalidate earlier success before any
+    # decoding or solving can fail, while leaving source-bound caches reusable.
+    for key in ("qc", "conflict", "register", "rescue", "render", "inspect", "summary"):
+        st.d.pop(key, None)
+    st.d["_done"] = []
+    st.save()
     banner(2, f"建缓存（1/{args.scale_div}）+ 全帧对焦分数")
     info = T.build_cache(ts, cache_dir, scale_div=args.scale_div)
     log(f"  新解码 {info['cached']} 张，旧缓存补算全帧分数 {info.get('rescored', 0)} 张，"
@@ -966,7 +1008,8 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     banner(5, "配准")
     import register as R
     edges, rstats = R.build_edges(cand, cache_dir, scale_div=args.scale_div,
-                                  workers=args.workers)
+                                  workers=args.workers,
+                                  row_policy="recorded-grid" if args.grid_policy == "preserve" else "infer")
     log(f"  边 {rstats.get('n_edges')} 条，剔除 {rstats.get('n_rejected')} 条")
     log(f"  实测纵向位移 {rstats.get('measured_dy')}, 横向位移 {rstats.get('measured_dx')}")
     log(f"  实测重叠：纵 {rstats.get('measured_overlap_y_px')} px，"
@@ -981,7 +1024,8 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     st.mark("register")
 
     banner("5b", "唯一覆盖救回")
-    rescued = step_rescue(cand, drop, pos, st)
+    rescued = step_rescue(cand, drop, pos, st,
+                          policy="preserve-grid" if args.grid_policy == "preserve" else "legacy")
     final_drop = drop - rescued
     sel = [i for i, t in enumerate(cand) if t.tid not in final_drop]
     keep = [cand[i] for i in sel]
@@ -999,14 +1043,27 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     rinfo = B.render(keep, pos, out, out_scale=args.out_scale,
                      cache_dir=cache_dir, flatfield=ff, use_full=args.full)
     log(f"  出图 {rinfo['out_w']}x{rinfo['out_h']} -> {out}")
+    missing_render = sorted({t.tid for t in keep} - set(rinfo["rendered_tids"]))
+    incomplete_render = sorted(set(missing_render) | set(rinfo["failed_load_tids"])
+                               | set(rinfo["missing_position_tids"]))
+    rinfo["missing_selected_tids"] = missing_render
+    rinfo["incomplete_tids"] = incomplete_render
     st.d["render"] = rinfo
+    if args.grid_policy == "preserve" and incomplete_render:
+        # A failed rerun must not leave an earlier success summary in the state.
+        st.d.pop("summary", None)
+        st.d["_done"] = [x for x in st.d.get("_done", []) if x not in ("render", "summary")]
+        st.save()
+        stop(f"完整网格渲染失败：{len(incomplete_render)} 张未完整绘制 {incomplete_render[:10]}；"
+             f"请检查 {st.path}，当前输出不能作为完整拼接结果。")
     st.mark("render")
 
     findings = step_inspect(out, pool, st)
 
     banner(9, "报告")
     st.d["summary"] = {
-        "tiles_total": len(ts), "tiles_used": len(keep),
+        "tiles_total": len(ts), "tiles_selected": len(keep), "tiles_used": rinfo["n_placed"],
+        "render_failed": incomplete_render, "grid_policy": args.grid_policy,
         "dropped": sorted(final_drop),
         "rescued": sorted(rescued), "conflict_losers": sorted(losers),
         "overlap_x_px": rstats.get("measured_overlap_x_px"),
