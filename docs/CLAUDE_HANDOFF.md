@@ -6,6 +6,8 @@ Updated 2026-10-09: the current state, the evidence from the 260128, 261002AM an
 
 ## Current state
 
+- **2026-10-26 spatial statistics integration.** `flakepipeline/spatial_maps/` and `tools/layer_spatial_maps.py` preserve both Figure 3 analysis styles as reusable code. Explicit native NPY mapping (1=2L,2=1L), exact PNG palette decoding, valid support and exclusion unions feed one pixel-counting core. The pipeline opt-in `--spatial-maps` adds source/code/grid-bound exports and cache integrity checks; the read-only workbench discovers saved spatial manifests. Each run uses a new directory; PNG/SVG and CSV/NPZ share recorded counts. Three historical masks reproduced the existing whole-map counts in both grids. This is calculation consistency, not inference accuracy. [Usage](SPATIAL_LAYER_MAPS_zh.md). Existing scanner runtime and model settings are unchanged.
+
 - This is the clean public DD repository, `YongXie-ICMM/MosaicAgent-DD`. DD covers acquisition, stitching, semantic layer number and optical spectroscopy. Do not add domain/instance annotation or twist-angle inference.
 - The complete release ZIP contains two original 1920 × 1080 images, the unchanged `model_0409_all.pth`, an asset manifest and three student launchers. Ordinary GitHub source archives do not contain these assets.
 - The user confirmed that only resolution changed from 3840 × 2160 to 1920 × 1080. Objective, magnification and physical field of view stayed the same. The current samples are on 260 nm SiO₂/Si, historically labelled 276 nm. Do not substitute the 70 nm / 0815 configuration.

@@ -17,5 +17,16 @@
       "name": "SAMPLE001",
       "mosaic_in": "./data/sample_mosaic.png"
     }
-  ]
+  ],
+  "spatial_maps": {
+    "enabled": false,
+    "heatmap_grid": [
+      8,
+      15
+    ],
+    "combined_grid": [
+      6,
+      11
+    ]
+  }
 }
