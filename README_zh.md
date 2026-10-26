@@ -4,6 +4,8 @@
 
 当前文章只做**扫描、拼接、层数识别与统计、光谱资料核对**。第03项的颜色表示单层、双层和厚层。原始实验数据、历史权重和其他开发工具仍单独保留。
 
+**2026-10-26 空间统计新增：**已保存的分割结果可直接生成第一版1L/2L/TL热图和第二版同格圆饼/矩形堆叠图，并输出行列统计、PNG/SVG和逐格数据。原流程可用`--spatial-maps`开启，工作台第03项可查看生成的结果。[操作方法与分母说明](docs/SPATIAL_LAYER_MAPS_zh.md)。现有推理默认行为保持不变。
+
 **[下载完整学生试跑包](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/latest)**：选 `MosaicAgent-DD-student-complete.zip`，包含程序、两张当前1920 × 1080原图、真实权重和启动文件。GitHub自动生成的Source code ZIP不包含原图压缩包和权重。每个学生包都在 `bundle_manifest.json` 里记录打包时的提交号；GitHub 上的 release 可能比 `main` 旧（见下面"当前状态与待办"）。
 
 **一步一步的学生说明书（PDF）：学生包最外层的 `00_STUDENT_GUIDE_zh.pdf`**，源文件是 [docs/STUDENT_GUIDE_zh.md](docs/STUDENT_GUIDE_zh.md)（分析电脑四个启动文件 01–04；仪器电脑扫描日从 `acquisition/Auto_Scan/00_white_balance_then_scan.bat` 进入：先在干净裸衬底上把白平衡校正到参考值并记录，再调用原来的扫描程序）。

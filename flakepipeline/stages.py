@@ -3,6 +3,8 @@ paths out of ctx, writes its products to disk, and returns a manifest."""
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
+from uuid import uuid4
 import os
 import subprocess
 import sys
@@ -944,7 +946,65 @@ def stage_regions(ctx, mosaic_path, mask_path, valid_path):
 
 
 # ============================================================ stats
+def spatial_maps_settings(ctx):
+    """Normalize the optional spatial export settings without changing defaults."""
+    settings = ctx.get("spatial_maps", {})
+    if not isinstance(settings, dict):
+        raise ValueError("spatial_maps must be an object with an enabled boolean")
+    enabled = settings.get("enabled", False)
+    if type(enabled) is not bool:
+        raise ValueError("spatial_maps.enabled must be a boolean")
+    normalized = {"enabled": enabled}
+    for key, default in (("heatmap_grid", (8, 15)), ("combined_grid", (6, 11))):
+        value = settings.get(key, default)
+        if (not isinstance(value, (list, tuple)) or len(value) != 2
+                or any(type(n) is not int or n <= 0 for n in value)):
+            raise ValueError(f"spatial_maps.{key} must contain positive integer [columns, rows]")
+        normalized[key] = list(value)
+    return normalized
+
+
+def _spatial_maps_module():
+    # Support both `python -m flakepipeline.run` and the existing run.py launcher.
+    if __package__:
+        from . import spatial_maps
+    else:
+        import spatial_maps
+    return spatial_maps
+
+
+def spatial_maps_cache_key(ctx):
+    settings = spatial_maps_settings(ctx)
+    if not settings["enabled"]:
+        return None
+    module = _spatial_maps_module()
+    return {**settings, "implementation_version": module.SPATIAL_MAPS_VERSION,
+            "implementation_sha256": module.implementation_fingerprint()}
+
+
+def _export_spatial_maps(ctx, mask_path, valid_path, exclusion_path, outdir, settings):
+    # Every export gets a new run folder. Failed or superseded exports remain
+    # inspectable and can never overwrite an earlier spatial result.
+    name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "_" + uuid4().hex[:8]
+    destination = outdir / "spatial_maps" / name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    exported = _spatial_maps_module().export_spatial_maps(
+        mask_path, valid_path, exclusion_path, destination, ctx["sample"],
+        heatmap_grid=tuple(settings["heatmap_grid"]),
+        combined_grid=tuple(settings["combined_grid"]))
+    if (not isinstance(exported, dict) or not isinstance(exported.get("manifest"), str)
+            or not isinstance(exported.get("outputs"), list) or not exported["outputs"]
+            or any(not isinstance(p, str) for p in exported["outputs"])):
+        raise ValueError("Spatial export returned an invalid artifact manifest")
+    for artifact in [exported["manifest"], *exported["outputs"]]:
+        path = Path(artifact)
+        if not path.resolve().is_relative_to(destination.resolve()) or not path.is_file():
+            raise ValueError(f"Spatial export artifact is missing or outside its run folder: {path}")
+    return exported
+
+
 def stage_stats(ctx, mask_path, valid_path, exclusion_path=None):
+    spatial_settings = spatial_maps_settings(ctx)
     outdir = ctx["work"] / "04_stats"
     outdir.mkdir(parents=True, exist_ok=True)
     mask = np.load(mask_path)
@@ -1045,6 +1105,19 @@ def stage_stats(ctx, mask_path, valid_path, exclusion_path=None):
         res["pie"] = str(outdir / f"{ctx['sample']}_pie.png")
     except Exception as e:
         res["pie_error"] = str(e)
+        (outdir / f"{ctx['sample']}_stats.json").write_text(
+            json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
+    if spatial_settings["enabled"]:
+        try:
+            res["spatial_maps"] = _export_spatial_maps(
+                ctx, mask_path, valid_path, exclusion_path, outdir, spatial_settings)
+        except Exception as exc:
+            res["spatial_maps_error"] = f"{type(exc).__name__}: {exc}"
+            (outdir / f"{ctx['sample']}_stats.json").write_text(
+                json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
+            return Result(ok=False, confidence=0.0, data=res,
+                          evidence="常规面积统计已保存，空间分布图导出失败",
+                          escalate=True, escalate_reason="空间分布图导出失败: " + str(exc))
         (outdir / f"{ctx['sample']}_stats.json").write_text(
             json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
     esc = bool(big)

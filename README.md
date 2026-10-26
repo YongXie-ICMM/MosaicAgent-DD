@@ -6,6 +6,8 @@ A publication-scoped workflow for optical microscope acquisition, mosaic constru
 
 ## Start here
 
+**Spatial layer maps (2026-10-26):** saved segmentation masks can now produce separate 1L/2L/TL heatmaps and combined pie/rectangular-stack maps with row/column profiles. Run `python tools/layer_spatial_maps.py --help`, or opt in with `--spatial-maps` in the existing layer pipeline. Native label IDs, valid scan support and exclusions are preserved; results include PNG/SVG, CSV/NPZ and a source-bound manifest. The workbench's layer entry reviews these saved outputs. [Commands and counting definitions](docs/SPATIAL_LAYER_MAPS_zh.md).
+
 **[Download the complete student bundle](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/latest)**: choose `MosaicAgent-DD-student-complete.zip` (code + two original 1920 × 1080 images + trained weights + numbered launchers). GitHub’s source-code ZIP does not include the image archive or checkpoint. Every bundle records the commit it was built from in `bundle_manifest.json`; a release can be older than `main` (see [Status](#status-2026-10-09)).
 
 **Students receiving the complete trial bundle:** extract the entire folder, then use these numbered launchers:
