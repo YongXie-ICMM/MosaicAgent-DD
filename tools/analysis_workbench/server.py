@@ -11,6 +11,7 @@ import mimetypes
 import os
 from pathlib import Path
 import platform
+import re
 import secrets
 import subprocess
 import sys
@@ -30,6 +31,11 @@ IMAGE_RUN = '06_analysis/runs/20260924_0409_inference_examples'
 MAX_JSON = 8 * 1024 * 1024
 INSPECT_TTL_S = 30.0      # git subprocesses per scan_repo
 HISTORY_TTL_S = 20.0      # full history re-parse while the scanner keeps appending
+SPATIAL_MAX_DEPTH = 6
+SPATIAL_MAX_ENTRIES = 10000
+SPATIAL_MAX_DIRECTORIES = 256
+SPATIAL_MAX_MANIFESTS = 80
+SPATIAL_MAX_OUTPUTS = 128
 
 
 def words(zh, en):
@@ -155,12 +161,14 @@ class Workbench:
                                words('有一条历史记录无法读取，请保留历史文件。', 'An event could not be read; retain the history file.')})
         return result
 
-    def register(self, path, tool, role, label, case_id='', expected_hash=None, member=None, *, case_label=None, image_size=None, source_run=None):
+    def register(self, path, tool, role, label, case_id='', expected_hash=None, member=None, *, case_label=None, image_size=None, source_run=None, scope_root=None):
         path = self.relocate(path)
         if path is None:
             return None
         path = path.resolve()
         if not path.is_file() or not any(inside(path, root) for root in self.roots().values()):
+            return None
+        if scope_root is not None and not inside(path, scope_root):
             return None
         aid = hashlib.sha256((str(path) + (member or '') + tool + role).encode()).hexdigest()[:24]
         item = {'id': aid, 'tool': tool, 'role': role, 'label': label, 'case_id': case_id,
@@ -172,13 +180,132 @@ class Workbench:
             item['image_size'] = image_size
         if source_run is not None:
             item['source_run'] = source_run
-        self.artifacts[aid] = {'public': item, 'path': path, 'sha256': expected_hash, 'member': member}
+        self.artifacts[aid] = {'public': item, 'path': path, 'sha256': expected_hash, 'member': member,
+                               'scope_root': Path(scope_root).resolve() if scope_root is not None else None}
         return item
+
+    def _spatial_manifests(self, root):
+        """Bounded, read-only discovery; never follow directory or manifest symlinks.
+
+        Includes standalone exports, <root>/spatial_maps/<run>, and pipeline
+        <root>/<sample>/04_stats/spatial_maps/<run> without a run_manifest.json.
+        The limits prevent a configured raw-data tree from freezing the review UI.
+        """
+        if not root or not root.is_dir():
+            return []
+        queue = [(root, 0)]
+        manifests = []
+        entries = directories = 0
+        truncated = False
+        while queue:
+            directory, depth = queue.pop(0)
+            if directories >= SPATIAL_MAX_DIRECTORIES:
+                truncated = True
+                break
+            directories += 1
+            try:
+                with os.scandir(directory) as contents:
+                    for entry in contents:
+                        entries += 1
+                        if entries > SPATIAL_MAX_ENTRIES:
+                            truncated = True
+                            break
+                        if entry.is_symlink():
+                            continue
+                        path = Path(entry.path)
+                        if not inside(path, root):
+                            continue
+                        if entry.is_file(follow_symlinks=False) and entry.name == 'spatial_manifest.json':
+                            manifests.append(path)
+                            if len(manifests) >= SPATIAL_MAX_MANIFESTS:
+                                truncated = True
+                                break
+                        elif entry.is_dir(follow_symlinks=False):
+                            if depth < SPATIAL_MAX_DEPTH and len(queue) + directories < SPATIAL_MAX_DIRECTORIES:
+                                queue.append((path, depth + 1))
+                            else:
+                                truncated = True
+                if entries > SPATIAL_MAX_ENTRIES or len(manifests) >= SPATIAL_MAX_MANIFESTS:
+                    break
+            except OSError as exc:
+                self.errors.append(words('空间统计目录暂不可读：' + str(exc),
+                                         'A spatial-results directory could not be read: ' + str(exc)))
+        if truncated:
+            self.errors.append(words(
+                '空间统计检索已达到上限；如缺少结果，请把“层数识别结果文件夹”直接设为所需运行目录。',
+                'Spatial-result discovery reached its limit; connect the desired run directory directly if results are missing.'))
+        return sorted(manifests)
+
+    def _collect_spatial_maps(self, root):
+        for path in self._spatial_manifests(root):
+            try:
+                if path.is_symlink() or not inside(path, root):
+                    raise ValueError('Spatial manifest is outside its configured results directory')
+                if path.stat().st_size > MAX_JSON:
+                    raise ValueError('Spatial manifest is too large')
+                data = path.read_bytes()
+                manifest = json.loads(data.decode('utf-8-sig'))
+                if not isinstance(manifest, dict) or type(manifest.get('schema_version')) is not int or manifest['schema_version'] != 1 or manifest.get('kind') != 'layer_spatial_maps':
+                    raise ValueError('Unsupported spatial manifest schema')
+                sample = manifest.get('sample')
+                if not isinstance(sample, str) or not sample.strip() or len(sample) > 200:
+                    raise ValueError('Spatial sample name must be a nonempty string of at most 200 characters')
+                grids = manifest.get('grids')
+                if not isinstance(grids, dict) or not grids:
+                    raise ValueError('Spatial grids must be recorded')
+                for key, shape in grids.items():
+                    if key not in {'heatmaps', 'combined'} or not isinstance(shape, list) or len(shape) != 2 or not all(type(v) is int and v > 0 for v in shape):
+                        raise ValueError('Spatial grids must contain positive [columns, rows] dimensions')
+                outputs = manifest.get('outputs')
+                if not isinstance(outputs, list) or not 1 <= len(outputs) <= SPATIAL_MAX_OUTPUTS:
+                    raise ValueError('Spatial outputs must be a nonempty bounded list')
+                checked = []
+                seen = set()
+                allowed = {'figure': {'.png', '.svg'}, 'preview': {'.png', '.svg'},
+                           'data': {'.csv', '.tsv', '.json', '.npz'}}
+                for output in outputs:
+                    if not isinstance(output, dict):
+                        raise ValueError('Spatial output must be an object')
+                    relative = output.get('path')
+                    digest = output.get('sha256')
+                    role = output.get('role')
+                    if not isinstance(relative, str) or not relative or len(relative) > 1024 or any(c in relative for c in ('\\', ':', '\x00')) or any(part in {'', '.', '..'} for part in relative.split('/')):
+                        raise ValueError('Spatial output paths must be safe relative paths')
+                    candidate = path.parent / relative
+                    if relative in seen or role not in allowed or candidate.suffix.lower() not in allowed[role]:
+                        raise ValueError('Spatial output has a duplicate path or unsupported format/role')
+                    if not isinstance(digest, str) or re.fullmatch(r'[0-9a-fA-F]{64}', digest) is None:
+                        raise ValueError('Spatial output must record a SHA-256 digest')
+                    if not inside(candidate, path.parent) or not inside(candidate, root) or not candidate.is_file():
+                        raise ValueError('Spatial output is missing or outside its own run directory')
+                    seen.add(relative)
+                    checked.append((candidate, relative, digest.lower(), role))
+                # Validate the entire inventory before exposing any of its files.
+                run_name = str(path.parent.relative_to(root))
+                for candidate, relative, digest, role in checked:
+                    self.register(candidate, 'layers', 'data' if role == 'data' else 'report',
+                                  words(sample + ' 空间分布 · ' + relative, sample + ' spatial map · ' + relative),
+                                  expected_hash=digest, source_run=run_name, scope_root=path.parent)
+                self.register(path, 'layers', 'data',
+                              words(sample + ' 空间统计参数与来源', sample + ' spatial-map settings and provenance'),
+                              expected_hash=hashlib.sha256(data).hexdigest(), source_run=run_name, scope_root=path.parent)
+                dimensions = ', '.join(f'{key}: {shape[0]} × {shape[1]}' for key, shape in grids.items())
+                self.spatial_details.append(words(
+                    f'已保存的空间分布：{sample}（{dimensions}）。PNG 可预览，SVG 和逐格数据可打开或保存。',
+                    f'Saved spatial maps: {sample} ({dimensions}). Preview PNG figures; open or save SVG and per-tile data.'))
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                self.errors.append(words('空间统计清单读取失败：' + str(exc),
+                                         'Spatial-map manifest could not be read: ' + str(exc)))
+        if self.spatial_details:
+            self.spatial_details.append(words(
+                '1L、2L、TL 组成以保留晶体像素之和为分母；覆盖率另计。这里只查看已保存结果，不重新运行识别或统计。',
+                '1L/2L/TL composition uses retained crystal pixels; coverage is separate. This view reads saved results without running inference or statistics.'))
 
     def collect(self):
         self.artifacts = {}
         self.errors = []
         self.inference_details = []
+        self.spatial_details = []
         launch_logs = self.runtime / 'scan_launches'
         if launch_logs.is_dir():
             for log in sorted(launch_logs.glob('*.log'))[-5:]:
@@ -201,6 +328,7 @@ class Workbench:
             self.register(root / '04_manuscript/TwistCVD_Paper/Spectra/dr_spectra_figure.png', 'spectra', 'report',
                           words('已存档光谱图（非新质检结果）', 'Archived spectra figure (not a new QC result)'))
         run = self.inference_results
+        self._collect_spatial_maps(run)
         manifest_path = run / 'results/run_manifest.json' if run else None
         if manifest_path and manifest_path.is_file():
             try:
@@ -326,7 +454,7 @@ class Workbench:
                           status_note=words('核对已保存的原图、层数预测和统计；此入口不运行新的识别。', 'Review saved originals, layer predictions and statistics; this entry does not run new inference.') if available['layers'] else words('未找到已保存的层数结果；请在设置中连接项目或层数识别结果文件夹。', 'No saved layer results found; connect a project or layer inference results folder in Setup.'),
                           primary_label=words('查看层数结果', 'Review layer-number results'), github_url=MOSAIC_URL,
                           guide_url=MOSAIC_URL + '/blob/main/tools/analysis_workbench/README.md', revision='',
-                          details=list(self.inference_details) + [words('核对统计区域、有效像素与分母；预测图不代表独立验证。', 'Check counting support, valid pixels and denominators; a prediction is not independent validation.')]),
+                          details=list(self.inference_details) + self.spatial_details + [words('核对统计区域、有效像素与分母；预测图不代表独立验证。', 'Check counting support, valid pixels and denominators; a prediction is not independent validation.')]),
                      dict(id='spectra', available=available['spectra'], launchable=available['spectra'], status='review_available' if available['spectra'] else 'needs_setup',
                           status_note=words('核对已有光谱、样品和生长记录；采谱与位置复核仍需实测。', 'Check spectral/sample/growth records; acquisition and position verification require measurements.'),
                           primary_label=words('查看核对资料', 'Review spectral records'), github_url=MOSAIC_URL,
@@ -413,6 +541,8 @@ class Workbench:
             path = item['path']
             if not any(inside(path, root) for root in self.roots().values()):
                 raise ValueError('Artifact is outside configured folders')
+            if item.get('scope_root') is not None and not inside(path, item['scope_root']):
+                raise ValueError('Artifact is outside its own run directory')
             if item['member']:
                 with zipfile.ZipFile(path) as z:
                     info = z.getinfo(item['member'])
