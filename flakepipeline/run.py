@@ -22,6 +22,8 @@ def main():
     ap.add_argument("--config", required=True, help="path to the JSON configuration")
     ap.add_argument("--no-ai", action="store_true", help="skip the Kimi calls; keep every region")
     ap.add_argument("--force", action="store_true", help="ignore the cache and re-run everything")
+    ap.add_argument("--spatial-maps", action="store_true",
+                    help="export layer heatmaps and combined pies/stacks after area statistics")
     ap.add_argument("--only", default=None, help="run a single sample by name")
     ap.add_argument("--plan", action="store_true",
                     help="print what would run (cache / run / blocked) and exit")
@@ -59,6 +61,11 @@ def main():
         cfg["no_ai"] = True
     if a.force:
         cfg["force"] = True
+    if a.spatial_maps:
+        settings = cfg.get("spatial_maps", {})
+        if not isinstance(settings, dict):
+            ap.error("spatial_maps must be a JSON object")
+        cfg["spatial_maps"] = {**settings, "enabled": True}
     if a.replay:
         cfg["replay"] = True
     if a.verdicts:

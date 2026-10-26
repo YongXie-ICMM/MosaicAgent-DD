@@ -11,6 +11,8 @@ A local interface for the Digital Discovery workflow:
 
 The web interface reviews saved products. It does not run new semantic segmentation, collect spectra or issue external model requests. Preparing stitching parameters is distinct from executing the generated command. Acquisition is controlled in the separate native scanner window.
 
+The layer entry also discovers saved `spatial_manifest.json` exports below the configured layer inference results folder, including a standalone export directory and pipeline `04_stats/spatial_maps` runs. It displays PNG/SVG figures and CSV/JSON/NPZ records with their hashes. This review is read-only; generate the maps with the [spatial analysis CLI](../../docs/SPATIAL_LAYER_MAPS_zh.md) first.
+
 ## Start
 
 The workbench itself requires Python 3.10+ and the standard library. Stitching and inference retain the dependencies in the repository requirements; the scanner has its own Windows/vendor setup described in the acquisition guide.

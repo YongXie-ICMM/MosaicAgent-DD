@@ -162,9 +162,20 @@ class Orchestrator:
                     "human": _hash_obj(self.human) if self.human else ""}
 
         def k_stats(ctx, st):
-            return {"mask": _hash_file(st["mask"]),
-                    "valid_mask": _hash_file(st["valid_mask"]),
-                    "excl": _hash_file(st["exclusion_mask"]) if st.get("exclusion_mask") else ""}
+            key = {"mask": _hash_file(st["mask"]),
+                   "valid_mask": _hash_file(st["valid_mask"]),
+                   "excl": _hash_file(st["exclusion_mask"]) if st.get("exclusion_mask") else ""}
+            spatial = stages.spatial_maps_cache_key(ctx)
+            if spatial is not None:
+                key["spatial_maps"] = spatial
+            return key
+
+        def stats_outputs(ctx, result):
+            outputs = [str(ctx["work"] / "04_stats" / f"{ctx['sample']}_stats.json")]
+            spatial = result.get("spatial_maps")
+            if spatial:
+                outputs.extend([spatial["manifest"], *spatial["outputs"]])
+            return list(dict.fromkeys(outputs))
 
         return [
             dict(name="stitch", key=k_stitch,
@@ -189,8 +200,7 @@ class Orchestrator:
             dict(name="stats", key=k_stats,
                  run=lambda ctx, st: stages.stage_stats(ctx, st["mask"], st["valid_mask"],
                                                         st.get("exclusion_mask")),
-                 outputs=lambda ctx, r: [str(ctx["work"] / "04_stats" /
-                                             f"{ctx['sample']}_stats.json")]),
+                 outputs=stats_outputs),
         ]
 
     # ---------------------------------------------------------- context
@@ -219,6 +229,13 @@ class Orchestrator:
             return None
         if rec.get("config_hash") != self.cfg_hash:
             return None
+        if stage == "stats" and key.get("spatial_maps"):
+            # A failed optional export is an incomplete stats stage, even when
+            # its ordinary statistics JSON exists. Never turn it into a cache hit.
+            result = rec.get("result", {})
+            if (not rec.get("ok") or result.get("spatial_maps_error")
+                    or not result.get("spatial_maps")):
+                return None
         outputs, hashes = rec.get("outputs"), rec.get("output_sha256")
         # Legacy manifests without output hashes are deliberately a cache miss.
         # File existence alone cannot establish that the recorded result still
