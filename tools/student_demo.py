@@ -492,6 +492,19 @@ def prepare_workbench_config(root: Path = REPO) -> Path:
             raise DemoError("Existing workbench configuration is invalid and was preserved; ask the teacher to check it. / "
                             f"已有工作台配置无法读取或格式不正确，原文件已保留，请老师检查：{path}") from exc
         return path
+    if (root / "trial_kit.json").exists() or (root / "trial_kit.json").is_symlink():
+        # The complete trial kit binds a separate frozen C1 scanner; never fall
+        # back to the older hash-locked scanner if its marker is invalid.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("dd_trial_config", Path(__file__).with_name("dd_trial.py"))
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        try:
+            settings = helper.initial_config(root)
+        except (OSError, ValueError) as exc:
+            raise DemoError("Complete trial-kit validation failed; no scanner selected: " + str(exc)) from exc
+        atomic_json(path, settings)
+        return path
     latest = root / "outputs/demo/latest.json"
     inference = ""
     if latest.is_file():

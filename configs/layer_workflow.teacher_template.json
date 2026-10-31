@@ -1,0 +1,30 @@
+{
+  "work_root": "./outputs/layers",
+  "mosaic_agent": ".",
+  "weights": "./weights/model_0409_all.pth",
+  "tile": 512,
+  "overlap": 64,
+  "batch": 1,
+  "threads": 2,
+  "border_trim_px": 0,
+  "filler": "white",
+  "votes": 3,
+  "workers": 2,
+  "no_ai": true,
+  "no_repair": true,
+  "workflow_validation": {
+    "sample_model_confirmed": false,
+    "geometry_confirmed": false
+  },
+  "samples": [
+    {
+      "name": "REPLACE_WITH_BATCH_NAME",
+      "mosaic_in": "REPLACE_WITH_THIS_BATCH_STITCHED_IMAGE.png"
+    }
+  ],
+  "spatial_maps": {
+    "enabled": false,
+    "combined_grid": [6, 11],
+    "heatmap_grid": [8, 15]
+  }
+}

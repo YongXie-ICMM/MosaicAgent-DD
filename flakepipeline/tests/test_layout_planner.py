@@ -24,6 +24,8 @@ What it pins down:
 
 Run:  cd MosaicAgent && python3 -m pytest flakepipeline/tests -q
 """
+from __future__ import annotations
+
 import json
 import sys
 import types
