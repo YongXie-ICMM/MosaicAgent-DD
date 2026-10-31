@@ -47,3 +47,7 @@ Only after these checks should the scale choice become a simplified GUI option f
 ## Student responsibilities
 
 Students provide same-field acquisition pairs, a small scan with its logs, and screenshots identifying disagreements, following `docs/STUDENT_GUIDE_zh.md`; on a scan day they start from `00_white_balance_then_scan.bat` and hand back the `colour_calibration/` record with the scan. The supervisor establishes supported reference labels. Algorithm changes, model selection, controlled comparisons and GitHub publication belong to the developer and supervisor; students are not asked to write agents.
+
+## 2026-11-01 local complete trial packaging
+
+Owner now explicitly requests a complete kit and will forward it. `tools/build_dd_trial_kit.py` assembles analysis, exact unchanged74-file C1 delivery and verified one-page PDF under one root. `tools/verify_dd_trial_kit.py` verifies the ZIP and all nested manifests before use. `tools/dd_trial.py` validates a bounded first-launch marker and C1 hashes; existing teacher settings remain byte-identical. The root installer checks64-bit Python>=3.9, Tk, analysis/scanner dependencies and Windows VC++2013 system runtimes without loading vendor SDKs. No credentials, experiment data or Memory history are included. Unconfirmed teacher template is a gate, not a claim of valid sample settings. Windows full-flow validation remains the purpose of this student trial. Frozen DD16 and original C1 files are never edited. No push, tag or GitHub release is authorized by this packaging task.
