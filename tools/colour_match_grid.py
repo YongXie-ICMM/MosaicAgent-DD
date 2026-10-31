@@ -302,8 +302,9 @@ def overlap_ratio(A: np.ndarray, B: np.ndarray, dx: int, dy: int) -> dict | None
 class _TileCache:
     """LRU of measurement-scale, flat-fielded tiles (uint8), bounded by count."""
 
-    def __init__(self, grid, corr, scale, capacity):
+    def __init__(self, grid, corr, scale, capacity, *, load_rgb=None):
         self.grid, self.corr, self.scale, self.capacity = grid, corr, scale, capacity
+        self.load_rgb = _load_rgb if load_rgb is None else load_rgb
         self.store: OrderedDict = OrderedDict()
 
     def get(self, key):
@@ -311,7 +312,7 @@ class _TileCache:
         if img is not None:
             self.store.move_to_end(key)
             return img
-        rgb = _load_rgb(self.grid[key])
+        rgb = self.load_rgb(self.grid[key])
         if self.corr is not None:
             rgb = np.clip(np.rint(rgb.astype(np.float32) * self.corr), 0, 255).astype(np.uint8)
         img = _resize(rgb, self.scale)
@@ -322,16 +323,17 @@ class _TileCache:
 
 
 def measure_edges(inv: dict, direction: dict, ff: dict | None, *, min_ncc: float = 0.6,
-                  scale: float = MEASURE_SCALE, log=print) -> list[dict]:
+                  scale: float = MEASURE_SCALE, log=print, load_rgb=None) -> list[dict]:
     """One record per neighbouring pair (horizontal: same row, next column; vertical: same column, next row)."""
     rows, cols, grid = inv["rows"], inv["cols"], inv["grid"]
     side = direction["next_column_side"]
-    sample = _load_rgb(next(iter(grid.values())))
+    loader = _load_rgb if load_rgb is None else load_rgb
+    sample = loader(next(iter(grid.values())))
     h, w = sample.shape[:2]
     corr = flatfield_correction(ff, w, h)
     if w * scale < 640:                      # small tiles are measured at full size
         scale = 1.0
-    cache = _TileCache(grid, corr, scale, capacity=2 * len(rows) + 4)
+    cache = _TileCache(grid, corr, scale, capacity=2 * len(rows) + 4, load_rgb=loader)
     pdx_h, pdy_h = (np.array(direction["next_column_vector_dxdy"]) * scale).tolist()
     pdx_v, pdy_v = (np.array(direction["next_row_vector_dxdy"]) * scale).tolist() if direction.get("next_row_vector_dxdy") else (None, None)
     edges, n_bad = [], 0
@@ -359,7 +361,9 @@ def measure_edges(inv: dict, direction: dict, ff: dict | None, *, min_ncc: float
         log(f"[edges] column c{c}: {sum(1 for e in edges if e['a'][1] == c and 'ratio_all' in e)} usable edges so far from this column")
     good = [e for e in edges if "ratio_all" in e]
     if not good:
-        raise ColourMatchError("No neighbouring pair could be registered; colours cannot be compared")
+        error = ColourMatchError("No neighbouring pair could be registered; colours cannot be compared")
+        error.edges = edges  # callers can preserve rejected measurements on failure
+        raise error
     for kind in ("h", "v"):
         rs = np.array([e["ratio_all"] for e in good if e["kind"] == kind])
         if len(rs):

@@ -19,7 +19,7 @@
       <p class="eyebrow" data-i18n="eyebrow">RAW TILES → STITCHING PROFILE</p>
       <h1 id="pageTitle" data-i18n="headline">先确认图块，再准备拼接。</h1>
       <p class="subtitle" data-i18n="subtitle">按顺序检查文件夹、确认采集几何，保存一份可以复核的配置与命令。</p>
-      <p class="scope-note" data-i18n="scope">这里只检查本机文件并保存配置。保存后，在终端中运行命令才会开始拼接。</p>
+      <p class="scope-note" data-i18n="scope">默认自动校正逐图色差，无需选择，原图保留。这里先保存配置，运行命令后开始校正和拼接。</p>
     </section>
     <noscript><p class="notice error">此页面需要启用 JavaScript。This page requires JavaScript.</p></noscript>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
@@ -100,6 +100,8 @@
     <section id="preparedResult" class="prepared-result" aria-labelledby="preparedTitle" tabindex="-1" hidden>
       <p class="eyebrow" data-i18n="preparedLabel">PROFILE PREPARED</p><h2 id="preparedTitle" data-i18n="preparedTitle">配置已保存，尚未执行拼接。</h2>
       <p data-i18n="preparedHelp">先查看配置包中的说明和检查记录，再在已安装 MosaicAgent 依赖的终端中运行命令。生成配置不代表图块配准或拼接已通过验证。</p>
+      <div class="action-row"><button type="button" id="runWorkflowButton" class="button primary" disabled>开始自动校色与拼接 →</button><a href="/workflow/" class="button secondary">返回完整流程查看进度</a></div>
+      <p id="runWorkflowStatus" class="help" role="status"></p>
       <dl id="savedPaths" class="saved-paths"></dl>
       <div id="prepareWarnings" class="warning-list" hidden></div>
       <div class="command-heading"><h3 data-i18n="commandTitle">拼接命令</h3><button id="copyButton" type="button" class="button secondary" data-i18n="copy">复制命令</button></div>

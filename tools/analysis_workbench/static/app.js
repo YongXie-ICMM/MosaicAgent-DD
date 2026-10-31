@@ -80,6 +80,8 @@
     const savedTool = localStorage.getItem('mosaic-workbench-tool');
     if (ids.includes(savedTool)) activeTool = savedTool;
   } catch (_) { /* Local storage may be disabled. */ }
+  const query = new URLSearchParams(location.search);
+  if (ids.includes(query.get('stage'))) activeTool = query.get('stage');
   let state = null;
   let connected = false;
   let connectionAttempted = false;
@@ -475,6 +477,7 @@
   }));
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   renderLanguage();
+  if (query.get('setup') === '1') openSetup();
   refresh();
   setInterval(() => { if (!document.hidden && !$('setupDialog').open) refresh(); }, 5000);
 })();
