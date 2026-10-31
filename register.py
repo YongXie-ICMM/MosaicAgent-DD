@@ -392,7 +392,8 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
     """建立列内和列间的所有邻接边。返回 (edges, stats)。
 
     prior / nominal 都是全分辨率像素的 (dx_v, dy_v, dx_h, dy_h)：
-    v = "物理向下一行"的位移向量（约定 dy_v > 0），h = "向右一列"的位移向量。
+    v = "物理向下一行"的位移向量（约定 dy_v > 0），h = "col_idx 增加一列"的位移向量。
+    h 的 dx 可正可负；列编号保留采集身份，不要求图像从左到右编号。
     prior 给了就跳过第一阶段；nominal 只当第一阶段的搜索中心。
 
     被判不可信的边不会被丢掉，而是换成先验位移、权重压到 1e-3。宁可让全局
@@ -828,6 +829,8 @@ def build_edges(tiles, cache_dir, scale_div=8, workers=None,
         "measured_dy": float(mdyv),             # 列内 y 步距
         "measured_dx_v": float(mdxv),           # 列内 x 漂移（台面倾斜）
         "measured_dy_h": float(mdyh),           # 列间 y 漂移
+        "image_column_direction": "left" if mdxh < 0 else "right" if mdxh > 0 else "undetermined",
+        "image_column_direction_source": "registered_overlap_pairs" if nh_used > 0 else "prior_only",
         "measured_overlap_x_px": float(TILE_W - abs(mdxh)),
         "measured_overlap_y_px": float(TILE_H - mdyv),
         "nominal_overlap_x_px": float(TILE_W - abs(NOMINAL_FULL[2])),

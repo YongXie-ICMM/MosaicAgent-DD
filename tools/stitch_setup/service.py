@@ -303,6 +303,8 @@ def _prepare(body):
         raise ValueError("Inputs, acquisition records or layout changed since inspection; inspect again / 检查后图像、采集记录或布局已改变，请重新检查。")
     resolved, note = _prepare_profile(body, inspection, checked["inventory"])
     data_dir = Path(inspection["data_dir"])
+    from stitch_colour_policy import apply_policy
+    apply_policy(resolved, "auto", data_dir, checked["inventory"])
     output_text = _text(body, "output_parent") or inspection["default_output_parent"]
     output_parent = Path(output_text).expanduser().resolve()
     if output_parent == data_dir or data_dir in output_parent.parents:
@@ -324,7 +326,8 @@ def _prepare(body):
     argv = [sys.executable, str(ROOT / "run_stitch.py"), "--data", str(data_dir),
             "--work", str(bundle / "work"), "--out", str(bundle / "mosaic.png"),
             "--stitch-profile", str(profile_path), "--scale-div", str(resolved["scale_div"]),
-            "--out-scale", str(resolved["out_scale"]), "--input-preflight", str(preflight_path)]
+            "--out-scale", str(resolved["out_scale"]), "--input-preflight", str(preflight_path),
+            "--colour-correction", "auto"]
     if kimi["mode"] == "no-ai":
         argv.append("--no-ai")
     if checked["layout"] is not None:
@@ -333,6 +336,9 @@ def _prepare(body):
         argv.append("--full")
     command, shell = _command(argv)
     warnings = list(checked["warnings"]) + list(resolved["warnings"])
+    warnings.append("Automatic per-tile RGB colour correction is enabled; no student setting is required. "
+                    "Raw images are preserved and work/colour_correction.json records the result / "
+                    "已默认开启逐图颜色校正，无需选择；原图保留，校正记录在 work/colour_correction.json。")
     layer_next_step = ("Layer input geometry is recorded in layer_input_contract.json; verify the reference acquisition mode, "
                        "applicable checkpoint and actual field of view before inference / "
                        "层数输入尺寸已保存至 layer_input_contract.json；参考采集模式、适用权重与实际视野需核对。")

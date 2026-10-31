@@ -35,3 +35,5 @@ kimi_cache/
 *.dll
 *.dylib
 *.so
+# Local workflow memory contains experiment histories, never release assets.
+Memory/

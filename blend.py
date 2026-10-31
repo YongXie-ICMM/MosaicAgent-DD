@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Mapping
 from pathlib import Path
 import struct
 import zlib
@@ -192,7 +193,7 @@ def estimate_flatfield(tiles, cache_dir, sample=80, scale_div=8,
 _FF_RESIZED: tuple | None = None
 
 
-def apply_flatfield(img, ff) -> np.ndarray:
+def apply_flatfield(img, ff, *, gain_rgb=None) -> np.ndarray:
     """img 为 BGR uint8（任意尺寸），ff 内部缩放到 img 尺寸后逐像素相除。
 
     ff 本来就是低频场，用双线性放缩不会引入伪影；反过来若先把 img 缩到 ff
@@ -200,7 +201,9 @@ def apply_flatfield(img, ff) -> np.ndarray:
     """
     global _FF_RESIZED
     h, w = img.shape[:2]
-    if ff.shape[0] == h and ff.shape[1] == w:
+    if ff is None:
+        big = None
+    elif ff.shape[0] == h and ff.shape[1] == w:
         big = ff
     else:
         c = _FF_RESIZED
@@ -209,7 +212,13 @@ def apply_flatfield(img, ff) -> np.ndarray:
         else:
             big = cv2.resize(ff, (w, h), interpolation=cv2.INTER_LINEAR)
             _FF_RESIZED = (ff, (h, w), big)
-    out = img.astype(np.float32) / np.maximum(big, 1e-3)
+    out = img.astype(np.float32)
+    if big is not None:
+        out /= np.maximum(big, 1e-3)
+    if gain_rgb is not None:
+        # Images/fields use BGR; persisted overlap gains explicitly use RGB.
+        # Combine the flat field and gain in float before the sole clipping.
+        out *= np.asarray(gain_rgb, np.float32)[::-1].reshape(1, 1, 3)
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
@@ -371,7 +380,7 @@ class _PngStream:
 def render(tiles, positions, out_path, out_scale=1 / 8, cache_dir=None,
            flatfield=None, feather=True, band_px=4096, bg=(255, 255, 255),
            use_full=False, verbose=True, png_level=6,
-           carry_bytes=3 << 30) -> dict:
+           carry_bytes=3 << 30, tile_gains_rgb=None) -> dict:
     """按 positions（全分辨率像素坐标）把瓦片渲染成一张图。
 
     use_full=False 时从 cache_dir 读 1/scale_div 小图，因此 out_scale 不能
@@ -384,6 +393,9 @@ def render(tiles, positions, out_path, out_scale=1 / 8, cache_dir=None,
 
     The returned tile IDs preserve input order. Missing positions include
     absent and non-finite coordinates; failed loads have a valid position.
+    tile_gains_rgb is an optional complete {tid: [R,G,B]} mapping. Its gains
+    combine with the BGR flat field once, before clipping and band caching.
+    None retains the historical rendering path and byte-identical output.
     """
     if not tiles:
         raise ValueError("tiles 为空")
@@ -394,6 +406,22 @@ def render(tiles, positions, out_path, out_scale=1 / 8, cache_dir=None,
     live = [(t, p) for t, p in zip(tiles, pos) if p is not None]
     if not live:
         raise ValueError("没有任何瓦片带位置")
+    gains = None
+    if tile_gains_rgb is not None:
+        if not isinstance(tile_gains_rgb, Mapping):
+            raise ValueError("tile_gains_rgb must map each live tile ID to three RGB gains")
+        expected_tids = {t.tid for t, _ in live}
+        if set(tile_gains_rgb) != expected_tids:
+            raise ValueError("tile_gains_rgb IDs differ from the live render tiles")
+        gains = {}
+        for tid, value in tile_gains_rgb.items():
+            try:
+                gain = np.asarray(value, np.float32)
+            except (ValueError, TypeError) as error:
+                raise ValueError(f"Invalid RGB gain for {tid}") from error
+            if gain.shape != (3,) or not np.all(np.isfinite(gain)) or np.any(gain < 0.5) or np.any(gain > 2.0):
+                raise ValueError(f"RGB gain for {tid} must be three finite values within 0.5–2.0")
+            gains[tid] = gain
 
     # 缓存小图的实际尺寸决定了可用的最高输出倍率
     if not use_full:
@@ -495,7 +523,9 @@ def render(tiles, positions, out_path, out_scale=1 / 8, cache_dir=None,
                         failed.add(ti)
                         continue
                     n_decode += 1
-                    if flatfield is not None:
+                    if gains is not None:
+                        img = apply_flatfield(img, flatfield, gain_rgb=gains[t.tid])
+                    elif flatfield is not None:
                         img = apply_flatfield(img, flatfield)
                     if img.shape[0] != th or img.shape[1] != tw:
                         interp = (cv2.INTER_AREA if img.shape[1] > tw

@@ -86,12 +86,15 @@ def validate_profile(profile):
     if not isinstance(values, (list, tuple)) or len(values) != 4:
         raise ProfileError("nominal_vectors must be [dx_v, dy_v, dx_h, dy_h] in original pixels.")
     dxv, dyv, dxh, dyh = [_number(x, "nominal_vectors") for x in values]
-    if dyv <= 0 or dxh <= 0:
-        raise ProfileError("dy_v and dx_h must be positive for down-row/right-column progression.")
-    if abs(dxv) >= w or dyv >= h or dxh >= w or abs(dyh) >= h:
+    if dyv <= 0 or dxh == 0:
+        raise ProfileError("dy_v must be positive for down-row progression; dx_h must be nonzero and may point left or right.")
+    if abs(dxv) >= w or dyv >= h or abs(dxh) >= w or abs(dyh) >= h:
         raise ProfileError("Both nominal neighbor vectors must retain positive image overlap on both axes.")
-    if dxh * dyv - dxv * dyh <= 1e-9:
-        raise ProfileError("Nominal row/column vectors must form a nondegenerate forward grid.")
+    # Column identifiers follow acquisition identity, not necessarily image x.
+    # A leftward grid has negative handedness. Keep the old forward-grid guard
+    # for rightward profiles and its signed equivalent for leftward profiles.
+    if math.copysign(1.0, dxh) * (dxh * dyv - dxv * dyh) <= 1e-9:
+        raise ProfileError("Nominal row/column vectors must form a nondegenerate grid consistent with the signed horizontal direction.")
     result = {"schema_version": 1, "name": profile["name"].strip(), "image_size": [w, h],
               "nominal_vectors": [dxv, dyv, dxh, dyh],
               "geometry_source": profile["geometry_source"].strip()}
@@ -336,6 +339,11 @@ def make_run_binding(resolved, inventory, acquisition=None):
     # Keep legacy bindings compatible, but never reuse them for grid protection.
     if resolved.get("grid_policy", "legacy") != "legacy":
         values["grid_policy"] = resolved["grid_policy"]
+    # Automatic correction changes pixels, so it must never reuse an old,
+    # unlabelled cache. Explicit off keeps the historical binding contract.
+    if resolved.get("colour_correction", "off") != "off":
+        for key in ("colour_correction", "colour_algorithm", "colour_input"):
+            values[key] = resolved[key]
     # Preserve historical bindings byte-for-byte when no acquisition record exists.
     if acquisition and acquisition.get("present"):
         values["acquisition_fingerprint"] = _digest(acquisition)
@@ -363,6 +371,11 @@ def check_input_preflight(path, resolved, inventory, acquisition):
     if not isinstance(previous, dict) or any(previous.get(key) != resolved[key]
             for key in ("profile", "scale_div", "out_scale", "full")):
         raise ProfileError("Profile or scale settings changed after preparation. Inspect and prepare again.")
+    if previous.get("colour_correction", "off") != resolved.get("colour_correction", "off"):
+        raise ProfileError("Colour correction policy changed after preparation. Inspect and prepare again.")
+    if resolved.get("colour_correction", "off") == "auto" and any(
+            previous.get(key) != resolved.get(key) for key in ("colour_algorithm", "colour_input")):
+        raise ProfileError("Colour correction inputs changed after preparation. Inspect and prepare again.")
     inspection = saved.get("inspection")
     if not isinstance(inspection, dict) or inspection.get("acquisition") != acquisition:
         raise ProfileError("Acquisition metadata changed after preparation. Inspect and prepare again.")

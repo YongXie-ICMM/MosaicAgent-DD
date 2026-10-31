@@ -4,12 +4,14 @@
 
 A local interface for the Digital Discovery workflow:
 
+**31October2026 local candidate:** `/` is now the [guided DD workflow](../../docs/DD_WORKFLOW_zh.md), with seven arrow steps and backend-prepared background jobs for stitching, teacher-configured layer inference and saved-mask spatial export. It records every step under project `Memory/`; hardware acquisition remains in the native window. The four tools below remain available as the historical review interface at `/review/`. The prior read-only descriptions refer to those review tools, not the new explicit Run buttons. No package/release has been built for this candidate.
+
 1. **Scan acquisition** opens the [AmScope acquisition tool](../../acquisition/README.md) on the Windows instrument computer.
 2. **Images and stitching** reviews saved images and provenance; the stitching setup page checks raw image dimensions, the scan grid and acquisition records before preparing parameters.
 3. **Layer-number analysis** compares original images with saved U-Net semantic layer predictions and provides the associated area-statistics records.
 4. **Spectra and positions** displays existing spectroscopy and sample correspondence records.
 
-The web interface reviews saved products. It does not run new semantic segmentation, collect spectra or issue external model requests. Preparing stitching parameters is distinct from executing the generated command. Acquisition is controlled in the separate native scanner window.
+The historical review interface displays saved products. New workflow Run buttons explicitly start fixed local scripts; layer/spatial jobs use no external models, while stitching retains the project's configured Kimi behaviour. Saving a stitch preparation alone does not execute it. The new Run button executes that exact source-bound preparation. Acquisition is controlled in the separate native scanner window.
 
 The layer entry also discovers saved `spatial_manifest.json` exports below the configured layer inference results folder, including a standalone export directory and pipeline `04_stats/spatial_maps` runs. It displays PNG/SVG figures and CSV/JSON/NPZ records with their hashes. This review is read-only; generate the maps with the [spatial analysis CLI](../../docs/SPATIAL_LAYER_MAPS_zh.md) first.
 
