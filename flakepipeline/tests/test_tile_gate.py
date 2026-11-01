@@ -195,8 +195,11 @@ def test_build_cache_scores_full_frame_and_persists_index(tmp_path):
         t.focus_score = t.contrast = t.focus = float("nan")
     info = T.build_cache(ts2, str(cache), scale_div=4, workers=2)
     assert info["cached"] == 0 and info["rescored"] == 0
-    assert [(t.focus_score, t.contrast, t.focus, t.mean, t.std, t.clip_frac) for t in ts2] == \
-        pytest.approx(first)
+    # Compare the numeric matrix explicitly: recent pytest versions reject a
+    # nested list of tuples in approx(). Keep the original default tolerances.
+    np.testing.assert_allclose(
+        [(t.focus_score, t.contrast, t.focus, t.mean, t.std, t.clip_frac) for t in ts2],
+        first, rtol=1e-6, atol=1e-12, equal_nan=False)
     assert all(t.flags == [] for t in ts2)
 
     # 3. old cache without an index (pre-2026-09-02 work dirs): the full frame is scored
