@@ -1,42 +1,63 @@
 # Data, checkpoints and reproducibility
 
-[Main entry](../README.md)
+[English README](../README.md) · [Workflow](DD_WORKFLOW.md) · [Source provenance](PROVENANCE.md)
 
-The Git repository contains the submission-scoped software. The complete student trial distribution adds the original example images and the actual checkpoint used for inference. Download `MosaicAgent-DD-student-complete.zip` from the [release assets](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/latest). The package contains:
+## Source code and research assets
+
+The Git repository supplies the analysis source, configuration examples, tests and documented acquisition interfaces. Executing the layer demonstration additionally requires these trusted research assets:
 
 ```text
-MosaicAgent-DD/
-  data/demo/source_images.zip
-  data/demo/assets.json
-  weights/model_0409_all.pth
-  01_install.bat / .command
-  02_run_layer_demo.bat / .command
-  03_open_workbench.bat / .command
-  00_STUDENT_GUIDE_zh.pdf              step-by-step student manual (copy of docs/STUDENT_GUIDE_zh.pdf)
-  bundle_manifest.json                 every packed file with its SHA-256, source commit, build time
-  acquisition/Auto_Scan/               unchanged scanner runtime + 00_white_balance_then_scan.bat, wb_calibrate.py
-  docs/STUDENT_GUIDE_zh.md / .pdf      the manual's Markdown source and its PDF (tools/build_student_guide_pdf.py)
-  (all other tracked sources: code, configs, docs, tests)
+data/demo/assets.json
+data/demo/source_images.zip
+weights/model_0409_all.pth
 ```
 
-The manifest binds each source image and the checkpoint to SHA-256 values. The launcher verifies the assets before loading the model. The bundle is built with `python tools/build_student_bundle.py` from a checkout that holds the assets: it refuses to pack when an asset is missing or does not match `data/demo/assets.json`, packs everything tracked by Git (outputs, environments and caches excluded), writes `bundle_manifest.json` into the archive and beside it, and re-reads the archive to verify every member; `--check <zip>` repeats that verification on a downloaded bundle. Two variants exist: the public `MosaicAgent-DD-student-complete.zip` (no credentials; stitching falls back to statistics with `--no-ai`) and, built with `--with-env <path to the group's .env>`, the internal `MosaicAgent-DD-student-complete-with-kimi.zip` whose manifest records `credentials_included: true`. The owner decided on 2026-10-05 that the group's students stitch with Kimi exactly as the original pipeline did, so the internal variant is what students receive; it is never attached to a GitHub release. Credential files are excluded from enumeration and only enter an archive through `--with-env`. Model files are trusted research inputs: the inherited PyTorch loader supports legacy checkpoints and must not be used with untrusted downloaded files. Legacy spectral pickle files have the same trusted-input restriction.
+`assets.json` binds both the image archive and the checkpoint to SHA-256 values and records each original image's member name, dimensions and hash. `python tools/student_demo.py check` validates the supplied assets before a model is loaded.
 
-The example images retain their original bytes and pixels; they have not been resized from older 3840 × 2160 records. Their scan-grid indices and session metadata were not supplied, so they are not an established adjacent-pair stitching test. The checkpoint is the unchanged 0409 model previously checked for executable inference. The native and scale-adjusted trials both ran. Their comparison did not resolve the visual concern that broad apparent-substrate areas are labelled monolayer; there are no independent reference labels or quantified accuracy results for these two images. These outputs are not accepted measurements. The user confirmed these samples are on **260 nm SiO₂/Si**, historically labelled “276 nm”. This correction is specific to the supplied examples, not a blanket rewrite of spectroscopy reference calibrations. The 0815 checkpoint belongs to a 70 nm sample configuration and is not used in the bundle. Review model training conditions, preprocessing and acquisition colour settings; the visual concern has not been attributed to any single cause. The user subsequently confirmed on 2026-10-05 that only the camera resolution changed from 3840 × 2160 to 1920 × 1080, while the objective, magnification and physical field of view remained unchanged. The asset manifest records this confirmation under `capture_geometry`, including its source. This operator confirmation supports the pixel-scale mapping but is not an independent micrometre calibration. The current bundle automatically uses native 256/32 tiles/overlap resampled to the unchanged 512-pixel model window; only legacy assets without a `capture_geometry` field retain the native 512/64 baseline. If that field is present but unconfirmed or invalid, the run stops with an error rather than silently falling back. The earlier diagnostic comparison used an assumed-field-of-view hypothesis at the time; the subsequent confirmation does not turn those predictions into validated measurements. See [Resolution and inference](RESOLUTION_AND_INFERENCE.md) for the recorded geometry and limitations.
+The checkpoint identity is `model_0409_all.pth`, SHA-256 `b771fc9cfaa8fdc1eba9d680d7c3b678890a903ddf12f2073b5a8c957b64a022`. The two-image archive SHA-256 is `bae41a3cd7e9536eb5ef4e9f80d3396bba6717df3f58ed16646e304bbe829ae5`. The manifest remains authoritative; the launcher rejects a mismatch.
 
-`configs/reference_substrate_colour.json` records the bare-substrate colour of the capture mode on which the checkpoint was previously reviewed (derived from its own predictions on two historical frames, with their hashes). The demo compares each image against it and records the result; it is a colour-balance reference, not a physical calibration or a label. Re-derive it when the camera, illumination, objective or oxide thickness changes. The 2026-10-05 comparison that motivated it is in [docs/diagnostics/20261005_colour_balance](diagnostics/20261005_colour_balance/README.md).
+The original example resources have been distributed with the laboratory's complete student packages. Inspect [GitHub release assets](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases) and their manifests for the available public distribution. A release can contain older code even when its checkpoint is unchanged. Source downloads alone do not supply the model or original images. Obtain missing research assets from the maintainers rather than substituting another checkpoint.
 
-The trial uses two current 1920 × 1080 optical microscope fields, not an independent test set. Its purpose is to show that the supplied checkpoint and current code execute and produce reviewable layer masks. It does not establish classification accuracy, cross-batch generalization, or an agent benefit. Original data and historical predictions are retained; each run creates a new output directory.
+The key-free complete trial kit prepared on 1 November 2026 contains the current analysis branch, unchanged C1 scanner delivery, original 0409 assets and one-page student PDF. Its `bundle_manifest.json` records analysis files; `scanner_C1/delivery_manifest.json` preserves the scanner inventory; `trial_kit_manifest.json` binds the whole package. This local kit has not been published as a GitHub release. It excludes credentials, experimental histories, generated Memory and Python environments. Historical internal distributions that carried a local `.env` are not public reproducibility assets.
 
-All original experimental archives, full scan grids, historical annotations and previously used weights remain in the laboratory project. They are not replaced by the small trial bundle. Local saved paths remain usable. The portable student package resolves its own paths so that a student does not need the researcher's username or home folder.
+Only load trusted checkpoints. The inherited PyTorch loader supports the original legacy checkpoint format; this is not a mechanism for accepting arbitrary model files. Legacy spectral pickle inputs have the same trusted-input boundary.
 
-## Using new experimental data
+## Demonstration domain and geometry
 
-1. Preserve the source archive or scan folder and session metadata.
-2. Record the sample/batch ID and the acquisition settings. Confirm real physical calibration separately from image dimensions.
-3. Bind stitching settings to the actual raw grid using the workbench setup tool. Keep `layer_input_contract.json`, `profile.json` and `preflight.json` together; they record native tile dimensions and hash-bound handoff metadata, not proof of a completed mosaic or applicable model.
-4. Use an explicit checkpoint, inference tile size, overlap, filler/support convention and counting denominator. Training crop size and inference tile size are distinct settings.
-5. Save predictions, logs, configuration and review decisions together. State any exclusion region and its numerator/denominator effect.
+The two examples retain their original **1920 × 1080** pixels. The operator confirmed their substrate as **260 nm SiO₂/Si**, correcting an earlier 276 nm label, and confirmed that the objective, magnification and physical field of view were unchanged from the 3840 × 2160 capture mode. These confirmations are recorded in `capture_geometry` and the substrate metadata. They support a pixel-scale mapping; they are not an independent micrometre calibration.
 
-The image-review adapter accepts a saved `results/run_manifest.json` and case-specific `mask_color.png`; see [the workbench schema](../tools/analysis_workbench/README.md). The trial launcher writes that format. It does not automatically reproduce all manuscript figures or historical region exclusions.
+With that recorded geometry, the demonstration samples native 256-pixel windows with 32-pixel overlap and resamples them to the unchanged 512-pixel model window. Explicitly unconfirmed or invalid geometry stops the run. Legacy assets lacking geometry metadata retain their documented baseline. [Resolution and inference](RESOLUTION_AND_INFERENCE.md) explains the distinction between native coordinates, model-window size and physical calibration.
 
-Complete manuscript reproducibility additionally needs the full source datasets, calibrated spectroscopy references, measurement correspondence, device/growth records and any historical decision files. Their availability must be described separately in the submitted data-availability statement. This repository does not invent an archival DOI or claim those records are publicly downloadable.
+The images are two fields, not an independent test set. Their grid indices and full session metadata were not supplied, so they are not a verified adjacent pair for stitching. Executable inference and reviewable masks establish operation of the supplied model; accuracy and cross-batch generalization require independent reference labels.
+
+A controlled October 2026 comparison traced the apparent-substrate-to-monolayer concern to capture colour balance: synthetic 1080p downsamples of historical 4K fields retained the expected class structure, and controlled channel gains reproduced or reduced the discrepancy. This is a diagnosis of those conditions, not a general colour-invariance claim. Diagnostic corrected predictions remain review outputs. The demo records a colour check; default scientific predictions and weights are not silently replaced by the diagnostic probe. [Controlled comparison](diagnostics/20261005_colour_balance/README.md).
+
+`configs/reference_substrate_colour.json` is a documented image-colour reference derived from historical fields, not a physical reflectance calibration or ground-truth label. Reassess applicability after changes in camera, illumination, objective or substrate. The separate 70 nm/0815 configuration is not substituted for the 0409 domain.
+
+## Using an experimental scan
+
+1. Preserve the original scan/archive, native images, session metadata, program identity and failed as well as successful runs.
+2. Record the sample/batch, objective, acquisition mode and calibration evidence. Image dimensions and controller counters alone do not establish physical distance.
+3. Bind the stitching profile to the selected scan. Keep `layer_input_contract.json`, `profile.json` and `preflight.json` together. They record native dimensions and hash-bound settings, not proof of a completed mosaic or applicable model.
+4. For layer inference, record the explicit checkpoint, current mosaic scale, inference-geometry plan, model window/overlap, valid support and exclusions. `layer_workflow.teacher_template.json` is unconfirmed and needs batch-specific review.
+5. Keep masks, numerical tables, provenance manifests, process logs and review decisions with each derived run. Outputs use new directories; original data remain unchanged.
+
+The configured project's `Memory/` keeps the workflow evidence. Shared process-level communication logs are linked/deduplicated; a copied log states its limits and non-atomic snapshot status. Diagnostic snapshots exclude image pixels, DLLs and credentials. [Memory layout and operation](DD_WORKFLOW.md#source-bound-memory).
+
+## Statistical interpretation
+
+Native IDs are 0 substrate, 1 bilayer, 2 monolayer and 3 thicker layers. Valid support and exclusions define the retained domain.
+
+- **Layer composition:** class area divided by retained classified MoS₂ area, 1L+2L+TL.
+- **Coverage:** class area divided by retained scan area, including substrate.
+- **Aggregated fractions:** sum pixel counts before calculating a ratio; do not average cell percentages.
+
+A cell with no retained MoS₂ has an undefined composition. Equal-sized symbols encode relative composition, not equal crystal coverage. TL remains the trained combined thicker-layer class. Spatial plots use mask coordinates until a physical calibration is explicitly supplied.
+
+The spatial exporter preserves the source labels. Consistent pixel counts across export grids validate computation, not the accuracy of segmentation labels.
+
+## Manuscript-level reproducibility
+
+The two-image demonstration does not reproduce every manuscript figure. Full reproduction additionally requires the complete source mosaics, native segmentation/support/exclusion masks, calibrated spectral references, sample/measurement correspondence, device dimensions and experimental decision records. Their archive links and access conditions belong in the manuscript's data-availability statement. This repository does not claim those complete datasets are included in Git.
+
+Code publication, a generated student package, normal-path instrument trials, synthetic tests and independent scientific validation are reported separately. See [validation in the README](../README.md#validation-and-scientific-scope) and the [incident history](INCIDENT_HISTORY.md).

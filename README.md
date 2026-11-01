@@ -1,120 +1,112 @@
 # MosaicAgent-DD
 
-A publication-scoped workflow for optical microscope acquisition, mosaic construction, semantic layer-number segmentation, and optical spectroscopy records in the Digital Discovery materials study.
+A reproducible software workflow for large-area optical microscopy of CVD-grown MoS₂: acquisition records, image stitching, semantic layer-number mapping, spatial layer statistics and optical spectroscopy records. This repository accompanies the Digital Discovery study.
 
-[中文操作入口](README_zh.md) · [Architecture](docs/ARCHITECTURE.md) · [Data and reproducibility](docs/DATA_AND_REPRODUCIBILITY.md) · [Resolution and inference](docs/RESOLUTION_AND_INFERENCE.md) · [Acquisition](acquisition/README.md) · [Spectroscopy](docs/SPECTRA.md) · [Status](#status-2026-10-09)
+**[English documentation](#documentation) · [中文说明](README_zh.md)**
 
-## Start here
+## Workflow
 
-**Local student trial kit (2026-11-01):** the owner's requested ZIP combines this analysis branch, the **unchanged** C1 communication-logging scanner, original0409 assets and a one-page Chinese guide. Extract once, run `01_install.bat`, then `03_open_workbench.bat`. A verified `trial_kit.json` marker selects `scanner_C1` on first launch; an existing teacher configuration is preserved byte-for-byte. Missing/tampered C1 files stop startup rather than selecting the historical scanner. The existing instrument Python3.9.18 x64 is preferred; a separate pinned student dependency profile avoids changing global packages. The shared environment is checked before installation; the scanner still requires Windows, vendor USB drivers and VC++2013x64 runtime. Teacher-confirmed batch/model/geometry settings remain necessary. `configs/layer_workflow.teacher_template.json` is deliberately unconfirmed. The local key-free ZIP is a new student trial, not a GitHub release or a completed Windows end-to-end validation. [Packaging and check commands](docs/DD_TRIAL_KIT_zh.md).
+**Acquire → verify images and logs → match colour → stitch → inspect → identify layers → map spatial composition**
 
-**DD guided workflow and Memory (2026-10-31, local validation candidate):** the workbench now opens a seven-step arrow flow: scan → log intake → automatic colour correction → stitching → review → layer inference → Figure4 spatial maps. The prepared stitch command can run from a button; validated teacher configurations drive the existing layer pipeline, and native masks feed the unchanged spatial statistics. Every step has source-bound records under the project's `Memory/`. Historical review tools remain at `/review/`. The source integration was initially validated without a new package; the separate local trial kit is described below. [Student flow and current limits](docs/DD_WORKFLOW_zh.md).
+| Stage | Implementation and output |
+|---|---|
+| Acquisition | Windows camera/XY-stage scanner with timestamped images, session metadata, device communication and per-operation records. The current communication-logging scanner is maintained in [AmScope-Camera](https://github.com/YongXie-ICMM/AmScope-Camera). |
+| Intake | Validate one scan's image inventory, recorded hashes and acquisition events; retain correspondence to the source session. |
+| Colour matching and stitching | Register neighbouring overlaps, estimate illumination and per-tile RGB gains, and apply correction during rendering. Colour matching is enabled by default. Verified recorded grids preserve acquisition row/column identities when texture is ambiguous. |
+| Result inspection | Check actual contributing images, missing positions, registration and colour records. A successful process exit alone does not validate a mosaic. |
+| Layer inference | Apply the explicitly selected 0409 U-Net checkpoint with recorded capture geometry. Retain native semantic masks, valid support, exclusions and review decisions. |
+| Spatial statistics | Export per-layer heatmaps, combined layer-composition maps and numerical tables from existing masks. No additional model call is needed. |
+| Provenance | Store source-bound job plans, progress, errors, artifact hashes and review history under one project `Memory/` directory. |
 
-**Automatic stitching colour correction (2026-10-31):** ordinary `run_stitch.py` and the stitching setup command now enable per-tile RGB matching by default. Students do not choose a colour mode. Registered neighbouring overlaps constrain the existing column-plus-tile solver; gains are applied during rendering without changing raw tiles or positions. `work/colour_correction.json` binds the measurements and gains to the source inventory. Verified colour-matched derived data are not corrected twice, and insufficient overlap evidence stops the run. Historical developer controls use `--colour-correction off` and a separate work directory. [Evidence and limits](docs/diagnostics/20261031_default_colour_correction.md).
+The guided browser interface opens this seven-stage workflow. The earlier review tools remain available at `/review/`. See the [English workflow guide](docs/DD_WORKFLOW.md).
 
-**Spatial layer maps (2026-10-26):** saved segmentation masks can now produce separate 1L/2L/TL heatmaps and combined pie/rectangular-stack maps with row/column profiles. Run `python tools/layer_spatial_maps.py --help`, or opt in with `--spatial-maps` in the existing layer pipeline. Native label IDs, valid scan support and exclusions are preserved; results include PNG/SVG, CSV/NPZ and a source-bound manifest. The workbench's layer entry reviews these saved outputs. [Commands and counting definitions](docs/SPATIAL_LAYER_MAPS_zh.md).
+## Reproduce the analysis
 
-**[Download the complete student bundle](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/latest)**: choose `MosaicAgent-DD-student-complete.zip` (code + two original 1920 × 1080 images + trained weights + numbered launchers). GitHub’s source-code ZIP does not include the image archive or checkpoint. Every bundle records the commit it was built from in `bundle_manifest.json`; a release can be older than `main` (see [Status](#status-2026-10-09)).
+### Environment
 
-**Students receiving the complete trial bundle:** extract the entire folder, then use these numbered launchers:
-
-1. `01_install.bat` (Windows) or `01_install.command` (macOS): create a local Python environment and install the analysis dependencies. Python 3.9+ and internet access for dependency installation are required.
-2. `02_run_layer_demo.bat` / `.command`: verify the supplied image and checkpoint hashes, run real U-Net inference on the supplied images, and save a new layer-number result directory.
-3. `03_open_workbench.bat` / `.command`: open the local analysis entry (normally `http://127.0.0.1:8792/`; the launcher chooses another port if it is occupied).
-4. `04_process_handover.bat` / `.command`: drag in the handover folder of a scan day (see [One folder from the scan day](#one-folder-from-the-scan-day)) and wait for `analysis/REPORT_zh.md`.
-
-On the instrument computer the entries are `acquisition/Auto_Scan/00_white_balance_then_scan.bat` (white balance, then the unchanged scanner) and, after scanning, `acquisition/Auto_Scan/04_pack_handover.bat`.
-
-The complete trial bundle includes the example image archive, trained checkpoint and asset manifest. A Git clone contains code, configuration examples and tests; it is not a substitute for those research assets. See [the data guide](docs/DATA_AND_REPRODUCIBILITY.md). No camera, stage or external model is called by the layer demo. Predicted labels are not independent physical reference measurements.
-
-The step-by-step student manual (Chinese, plain language) is [docs/STUDENT_GUIDE_zh.md](docs/STUDENT_GUIDE_zh.md); students open its PDF, `00_STUDENT_GUIDE_zh.pdf`, at the top of the bundle (rendered from the Markdown by `tools/build_student_guide_pdf.py`). On the instrument computer a scan day starts with `acquisition/Auto_Scan/00_white_balance_then_scan.bat`, which calibrates the camera colour balance on a clean bare-substrate field against `configs/reference_substrate_colour.json` and then calls the unchanged scanner ([details](acquisition/README.md#colour-balance-before-scanning-added-2026-10-05)). Teachers rebuild the bundle with `python tools/build_student_bundle.py`; it verifies the assets, lists every packed file with its SHA-256 in `bundle_manifest.json` and re-checks the archive. `--with-env <file>` additionally packs the group's `.env` (Kimi credentials) into the separately named internal variant `MosaicAgent-DD-student-complete-with-kimi.zip`: the group's students run the stitching with Kimi as in the original pipeline (QC votes, duplicate choice, seam inspection), and the stitch-setup tool omits `--no-ai` whenever credentials are configured. That archive is for the group only; the public bundle stays key-free.
-
-**For code review or a manual installation:**
+The unified student trial supports the instrument's existing **64-bit Python 3.9.18**. It does not require upgrading the instrument's Python. The pinned profile retains NumPy 1.26.2 and OpenCV 4.10.0.84 from the successful instrument runs; dependencies are installed in a local environment.
 
 ```sh
 python -m venv .venv
-# Activate .venv using the command for your shell.
-python -m pip install -r requirements-analysis.txt
-python tools/analysis_workbench/server.py
+# Activate this environment for your platform, then:
+python -m pip install -r requirements-student-py39.txt
 ```
 
-The workbench has four entries:
+Windows users receiving the complete trial kit can run `01_install.bat`, followed by `03_open_workbench.bat`. The macOS equivalents end in `.command`; acquisition itself requires Windows x64 and the appropriate vendor drivers. Camera and stage SDKs are not installed by pip. A Git clone contains source, not the checkpoint or a configured instrument.
 
-| Entry | Current operation |
-|---|---|
-| 01 Scan acquisition | Launch the bundled Windows acquisition GUI; inspect recorded acquisition history. |
-| 02 Images and stitching | Review source images and outputs; prepare image-bound stitching settings. |
-| 03 Layer-number analysis | Compare original images and semantic layer predictions; review counting support and area fractions. |
-| 04 Spectra and positions | Open available spectral outputs and source correspondence records. |
+### Example layer inference
 
-The workbench reviews saved products and prepares tool handoffs. New inference is run through the supplied demo or CLI. Entry 03 is restricted to semantic layer-number analysis. Existing research data and development tools are preserved separately.
-
-> **Current demonstration status:** the two original 1920 × 1080 images are on **260 nm SiO₂/Si**, confirmed by the user on 2026-10-05; “276 nm” was their historical label. The supplied 0409 checkpoint is unchanged. The user has now also confirmed that only camera resolution changed from 3840 × 2160 to 1920 × 1080, with the same objective, magnification and physical field of view. This operator confirmation supports the pixel-scale conversion; it is not an independent micrometre calibration. The native baseline and scale comparison have run, but their comparison did not resolve the visual concern that broad apparent-substrate areas are labelled monolayer. A [controlled comparison on 2026-10-05](docs/diagnostics/20261005_colour_balance/README.md) located the cause: not the pixel-count change (a synthetic 1080p downsample of a historical 4K frame is labelled correctly by the same checkpoint, substrate recall ≥ 99 %) but the **colour balance of the new capture mode** (bluer, less green). A per-channel gain alone restores the expected class structure, and the inverse gain reproduces the failure on a historical frame. The demo now records a colour check against `configs/reference_substrate_colour.json` in every run and warns when the balance differs; `python tools/student_demo.py colour-probe` measures it. There are still no independent reference labels or quantified accuracy results for these images, so corrected outputs remain diagnostic previews, not accepted layer measurements. Correct the balance at acquisition first; the separate 70 nm configuration is not substituted for this sample.
-
-## From scan day to mosaic
-
-### One folder from the scan day
-
-On the instrument computer `acquisition/Auto_Scan/04_pack_handover.bat` (`pack_handover.py`, standard library only) copies every scan session of the day intact (tiles, `session.json`, `events.jsonl`, program snapshot), the console transcripts, the acquisition journals, the camera-connection and white-balance records and the scanner manifest into one handover folder with `handover.json` (SHA-256 of every file, one record per run with grid, counts, camera readback and incidents such as `move_failed`); runs are never merged by hand any more. On the analysis computer `04_process_handover` (`python tools/handover.py run <folder>`) verifies the folder, assembles the runs into one flat grid by their original row/column numbers (provenance of every tile, duplicates, missing positions, a registration check across the seams where runs meet), writes the incident timeline, runs the colour/illumination correction and the stitcher, performs the reference-colour check and writes `analysis/REPORT_zh.md`. Each step reads the previous step's outputs from `<folder>/analysis/`, records its result in `handover_status.json` and is skipped when its inputs are unchanged (`--from <step>` redoes a step and everything after it). The report also compares the solved tile positions with a rigid grid model and lists any tile further than a quarter of a tile from it, and it splits the reference-colour check into overall brightness and colour balance, so a darker but correctly balanced substrate can be told apart from a colour cast (the verdict field itself still uses the combined per-channel gain; see [Status](#status-2026-10-08)). When the handover folder is written on the same disk as the scanner's sessions, `pack_handover.py --link` hard-links the files instead of copying them.
-
-### Colour and illumination correction
-
-When a scan was interrupted and resumed, the camera's automatic exposure drifted, or the field illumination is uneven, the mosaic shows steps at tile boundaries. `python tools/colour_match_grid.py --data <scan folder> [--stitch]` estimates the illumination field from the tiles themselves (per-pixel median of mean-normalised tiles), registers every neighbouring pair and measures the colour ratio in the overlap, then solves one level per column plus a penalised deviation per tile so that all 1600 overlaps agree (originals untouched: the derived dataset holds corrected copies, with hard links for tiles that need no change), writes derived `session.json`/`events.jsonl` with the new hashes, the field and the gain of every tile, a measured stitch profile, and optionally runs `run_stitch.py` (Kimi when configured). `--report-only` measures without writing a dataset; `--gain-mode column` keeps one gain per column; `--no-flat-field` skips the illumination correction. First use on 2026-10-06: a 16 × 53 scan whose last two columns came from a second camera session (gain 27 vs 21) needed column gains of about (0.95, 0.94, 0.91); two smaller steps (≈3 %) inside the first run and per-tile exposure differences of up to 4 % were corrected as well, and the illumination falloff of 7 % (left/right) and 3 % (top/bottom) was removed before stitching. On the 18 × 50 scan 261002AM (one run) the same tool found no column steps, per-tile deviations up to 4 % and an illumination falloff of 3–4 % (left/right) and ≤ 1 % (top/bottom).
-
-### Registration guard and recorded grids (2026-10-07 / 2026-10-09)
-
-The **2026-10-07 guard** remains part of the historical inference path: `register.py` builds column chains from vertical overlaps, then decides segment offsets from lateral correlations. A single lateral edge must reach NCC 0.5, and a non-zero offset must beat the zero-offset chain hypothesis by 0.1 in mean NCC unless it has more good edges. Otherwise it retains the **inferred chain rows**, which can already differ from the scanner's recorded rows. This guard fixed the two weak-edge chip-boundary tiles of 261002AM; it did not protect against the false vertical reversal found in the later 261008PM scan. Figure 3a's historical inference path and the guard thresholds remain unchanged. `positions_tids.json` binds the entries of `positions.npy` to source tiles.
-
-**2026-10-09:** `run_stitch.py --grid-policy auto` now uses recorded rows and retains every selected QC-nominated tile only when preflight validates a complete, contiguous `mosaic_r<row>_c<col>` flat grid. Historical ZIP and inferred layouts continue to use the legacy path. QC flags and reasons remain in the record; retaining grid coverage does not validate a focus diagnosis. `--grid-policy legacy` restores the old row inference and 55% coverage-rescue behaviour. Use a **new `--work` directory** when changing this policy: the policy is bound to the cache, and `--force` cannot bypass that check. Rendering records actual contributing, failed-load and missing-position tile IDs; a protected grid with any incomplete tile stops without a success summary, including a load failure after an earlier band contributed. A rerun invalidates old success markers before processing. Recorded rows do not establish real stage motion: the scanner still reports `spatial_coverage_verified=False`, and measured geometry is required for an unregisterable acquisition. See the [controlled comparison](docs/diagnostics/20261009_recorded_grid_stitching.md).
-
-## Run on your own data
-
-Run commands from the repository root. Start with the input check in **02 → Scan and stitching setup**, and retain the generated command and profile. Image file size in MB does not determine stitching geometry. For a new camera mode, verify actual pixels, overlap and physical calibration.
-
-Stitch setup also saves `layer_input_contract.json` beside `profile.json` and `preflight.json`. It carries actual raw-image dimensions, source bindings and acquisition verification into layer analysis; it does not select a checkpoint or establish physical calibration. For the current two-image bundle, the demo reads the recorded field-of-view confirmation and actual image dimensions, then automatically uses **256-pixel native tiles / 32-pixel overlap**, resampled to the unchanged **512-pixel model window**. Only legacy assets without a `capture_geometry` field retain the native 512/64 baseline. An explicit but unconfirmed or invalid geometry record stops the run for correction. Read [Resolution and inference](docs/RESOLUTION_AND_INFERENCE.md) before using a new capture mode.
-
-For an existing mosaic, edit `configs/layer_analysis.example.json` to point to your trusted checkpoint and image, then run:
+The complete example distribution supplies two original 1920×1080 images, `data/demo/assets.json` and the unchanged `weights/model_0409_all.pth`. With these trusted assets placed at their manifest-defined paths:
 
 ```sh
-python flakepipeline/run.py --config configs/layer_analysis.example.json --plan
-python flakepipeline/run.py --config configs/layer_analysis.example.json --no-ai --no-repair
+python tools/student_demo.py check
+python tools/student_demo.py run
+python tools/student_demo.py workbench
 ```
 
-The example explicitly disables model supervision and automatic repair. Missing inputs produce an error or blocked plan. Outputs include stage manifests, masks, statistical records and review requests when applicable. Changing a proposed mask or exclusion requires an evidence check; a successful process exit alone does not certify a measurement.
+The two images are an executable inference demonstration, not an independent accuracy test or a verified adjacent pair for stitching. Each run creates new outputs. Read [data, checkpoint and reproducibility requirements](docs/DATA_AND_REPRODUCIBILITY.md) before interpreting predictions.
 
-| Label value | Meaning | RGB display |
+### Stitch an experimental scan
+
+Prepare a profile using the actual image dimensions and verified acquisition geometry. Preserve the generated `profile.json`, `preflight.json` and `layer_input_contract.json`. For an offline run:
+
+```sh
+python run_stitch.py --data /path/to/scan --work /path/to/new_work \
+  --out /path/to/new_mosaic.png --stitch-profile /path/to/profile.json --no-ai
+```
+
+The guided interface prepares the same fixed command and records its execution. Default colour correction uses neighbouring registered overlaps; insufficient or inconsistent evidence stops the run. The explicit historical control is `--colour-correction off` with a separate work directory. Original images are never overwritten. [Correction evidence](docs/diagnostics/20261031_default_colour_correction.md).
+
+For layer analysis of a new mosaic, first confirm the sample/checkpoint domain and inference geometry. The supplied teacher template is deliberately unconfirmed; its booleans and example paths are not calibration. Keep the model's 512-pixel window distinct from the native capture/mosaic scale. [Resolution and inference](docs/RESOLUTION_AND_INFERENCE.md).
+
+### Export spatial layer maps
+
+```sh
+python tools/layer_spatial_maps.py --mask /path/to/native_mask.npy \
+  --valid-mask /path/to/valid_support.npy --sample sample_id \
+  --output /path/to/new_spatial_output
+```
+
+Supply `--exclusions` when exclusions apply. Outputs include PNG, editable SVG, CSV, NPZ and a source-bound JSON manifest. Counts are computed from native labels and retained support; they are not inferred from a coloured preview.
+
+| Native label | Meaning | Display RGB |
 |---|---|---|
-| 0 | Bare substrate | 0, 0, 0 |
-| 1 | Bilayer (2L) | 128, 0, 0 |
-| 2 | Monolayer (1L) | 0, 128, 0 |
-| 3 | Thick layer (TL) | 128, 128, 0 |
+| 0 | Substrate/background | 0,0,0 |
+| 1 | Bilayer, 2L | 128,0,0 |
+| 2 | Monolayer, 1L | 0,128,0 |
+| 3 | Thicker-layer class, TL | 128,128,0 |
 
-The layer-fraction denominator is **1L + 2L + TL**, excluding bare substrate. Valid support and any region exclusion must be recorded alongside the result. The demo applies no region exclusion.
+**Layer composition** divides each layer's retained area by retained classified MoS₂ area, 1L+2L+TL. **Coverage** divides by retained scan area, including substrate. Whole-map and row/column fractions are calculated from summed pixel counts, rather than means of cell percentages. TL is a combined thicker-layer class, not an isolated trilayer measurement. Physical coordinates require an independent spatial calibration.
 
-<a id="status-2026-10-08"></a>
+## Optional AI supervision
 
-## Status (2026-10-09)
+Kimi supervision is available in selected stitching, image-review and spectroscopy tools. Deterministic extraction, registration, layer inference and spatial counting remain explicit Python operations; a model response is not an experimental measurement. The offline commands above do not require an API key. When external supervision is enabled, selected images or plots may be transmitted to the configured provider; record the invocation and decision scope. Credentials and local environment files are not included in Git or the key-free trial kit.
 
-- **2026-10-09 controlled real-data check.** Both parts of *261008PM_5mg_70nm* contain a complete 864-tile acquisition; source SHA-256 values match the journal. With `invert_x=True`, the visually second column from the left corresponds to source c16. The baseline wrongly assigned c16 rows 0–15 to r+2 after a false r15→r16 reversal and a segment offset of 2. Recorded-grid protection reduced wrong row assignments from 16 to 0; all 864 tiles rendered, with 0 failed loads or final drops. The same 389 QC defocus flags were retained and rescued. Registration RMS fell from 2.1214 to 1.2757 px; affine-grid deviation median/p95/max fell from 55.4/156.3/1801.8 to 17.6/30.7/43.7 px. Explicit legacy mode reproduced the baseline PNG SHA-256 exactly. The **synthetic 41-tile fixture modeled on historical Figure 3a** retained all recorded row identities (position error p95 0.60 px); this is not a rerun of its 920 original frames. This is a new **70 nm stitching sample only**; the 260 nm demo, inference settings and weights are unchanged. These are geometric consistency checks, not layer accuracy or physical calibration. [Evidence](docs/diagnostics/20261009_recorded_grid_stitching.md).
-- **Earlier real-scan checks (2026-10-06–07).** *260128* (16 × 53 = 848 tiles; the first run stopped after ≈ 152 min with `Y movement failed: rc=-1`, and a second camera session at gain 27 instead of 21 re-shot the last two columns): column steps of 3.6 %, 3.8 % and 5.2 % were corrected; the overlap mismatch fell from 1.28 % to 0.58 % RMS between neighbouring columns and from 0.59 % to 0.23 % along columns; 848/848 tiles stitched with a registration residual of 0.88 px; rebuilt as a two-run handover folder, the processor produced a byte-identical mosaic. *261002AM* (18 × 50 = 900 tiles, one run in step-confirm mode): no column steps, per-tile deviations ≤ 4 %, 900/900 tiles, residual 1.95 px, every tile within 46 px of the rigid grid model after the registration guard; the bare substrate is 16 % darker than the reference while its colour balance is within 0.4 %. That scan came from a modified v3.4 scanner that no longer matches its own manifest, and its handover lacked console transcripts, journals and white-balance records because the packer was not used.
-- **Not yet validated.** White-balance calibration on the instrument (`wb_calibrate.py` is tested offline only); layer-number accuracy on the new 1080p images (there are no independent reference labels, so all outputs there remain diagnostic); the motion-failure policy sketched in [the stage-error log](docs/diagnostics/stage_error_incident_log_zh.md), which belongs in the scanner's source repository and needs instrument tests.
-- **Known issues.** (1) The stitcher's closed-form focus gate remains content-biased on single-shot flat grids: the earlier checks marked 453/900 tiles of 261002AM and 455/848 of 260128 as defocused, then rescued them. The new grid policy protects coverage; it does not correct or validate that classification, and focus thresholds remain unchanged. (2) The reference-colour verdict `colour_balance_differs_from_reference` is raised whenever any channel gain differs by more than the tolerance, including a pure brightness difference; the handover report prints the split, the demo's warning does not. (3) Colour correction needs a complete grid; an incomplete handover skips the colour and stitch steps. (4) The workbench has no page for handover folders yet. (5) The release asset v0.1.0 was built from `5a20621` on 2026-10-05, before the colour diagnosis, white-balance calibration, student manual, colour correction, handover and registration work; a new public bundle built from `main` should be published.
-- **Continuing the review.** [docs/CHATGPT_HANDOFF_zh.md](docs/CHATGPT_HANDOFF_zh.md) (Chinese) holds the current state, the evidence, the rules and an ordered backlog, with a prompt that can be pasted into ChatGPT or Codex; [AGENTS.md](AGENTS.md) lists the rules and checks for any coding agent working in this repository.
-- **Local verification (2026-10-09).** 704 tests passed, 1 skipped, with 70 subtests; compileall, JavaScript syntax checks for both apps, the registration self-test and all 16 locked scanner-file hashes passed. No external model was called. These local checks do not establish instrument acceptance or a published student bundle.
+## Validation and scientific scope
 
-## Optional model supervision
+- **Software:**1,014 offline tests passed and 1 skipped under actual Python 3.9.18 using the pinned dependencies. Python compilation, JavaScript syntax and registration self-checks passed. CI checks both Python 3.9 and 3.12; its live result is visible in [GitHub Actions](https://github.com/YongXie-ICMM/MosaicAgent-DD/actions).
+- **Packaging:** the 270-file local trial kit passed nested source, scanner and checkpoint hash checks. A synthetic background spatial job run from the extracted kit produced 16 verified artifacts and a Memory completion event. Synthetic checks are identified as such.
+- **Stitching:** recorded-grid protection corrected 16 misplaced rows in the 864-image low-texture case while retaining every image. The 1000-image colour/render replay retained all image IDs and reduced overlap log-RMS from 1.480% to 0.770%. These are geometry/consistency checks, not segmentation accuracy estimates.
+- **Acquisition:** the C1 scanner completed 9-image and 1000-image scans on 31 October 2026 in one application process. No motion fault occurred. This validates those normal runs and logging, not elimination of the earlier SDK `command_movr`−1 fault.
+- **Remaining acceptance:** a complete run through the new integrated interface on the Windows instrument remains pending. Independent reference labels are still needed for classification accuracy on the new capture conditions. Colour matching does not repair a physically incorrect scan or establish checkpoint applicability.
 
-Kimi supervision exists in the stitching, image-audit and spectral tools; it is not needed to launch the workbench or run the offline demo. Read [the architecture](docs/ARCHITECTURE.md) before enabling it. Configure credentials explicitly with environment variables or a local `.env` based on `.env.example`. Credentials and local paths are not committed. Enabling an external model may send the selected images or spectral plots to that service; `--no-ai` disables these requests.
+Historical data, checkpoints, scanner snapshots and decision records remain preserved. The DD repository's 16 hash-locked scanner runtime files are unchanged; the complete kit binds the separately verified C1 scanner. Neither acquisition nor blur retries imply automatic Z-axis focusing. The [English incident history](docs/INCIDENT_HISTORY.md) distinguishes confirmed application fixes, recovered read errors, diagnostic improvements and unresolved causes.
 
-## Validation and availability
+## Code, data and release provenance
 
-```sh
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
-```
+This source branch includes the current guided workflow. GitHub's latest release asset may have been built from an older commit; inspect its manifest rather than assuming it matches the current branch. The new local key-free student kit has not been published as a GitHub release. Source downloads do not include the original checkpoint, full manuscript datasets or a vendor-driver installation.
 
-Tests use temporary records, synthetic inputs and mocked devices; GitHub Actions ("Offline source checks") runs them, `compileall` and `node --check` on the two workbench scripts on every push. Instrument validation remains separate; the exported scanner adds mode checks to a previously tested acquisition base and still needs acceptance on the actual microscope. The complete student bundle is also checked using the real supplied checkpoint and example images. That is a reproducibility check, not a new accuracy evaluation.
+[Data and reproducibility](docs/DATA_AND_REPRODUCIBILITY.md) describes the required assets and boundaries. [Source provenance](docs/PROVENANCE.md) records portability changes and third-party components. This repository does not assign a new license to third-party SDKs or claim that all manuscript data are present. No archival DOI is invented here; the manuscript's data-availability statement identifies the corresponding data archive.
 
-Source provenance, modifications for public portability, and third-party dependency boundaries are documented in [PROVENANCE.md](docs/PROVENANCE.md). No repository-wide license grant has been added to this initial public snapshot; third-party dependencies and vendor SDKs retain their own terms.
+## Documentation
 
-Development follow-up: [Claude handoff and remaining experiments](docs/CLAUDE_HANDOFF.md) · [continuation prompt and backlog for ChatGPT/Codex (Chinese)](docs/CHATGPT_HANDOFF_zh.md) · [rules for coding agents](AGENTS.md).
+- [Guided workflow and Memory — English](docs/DD_WORKFLOW.md)
+- [Incident-to-code history — English](docs/INCIDENT_HISTORY.md)
+- [Data, checkpoints and reproducibility — English](docs/DATA_AND_REPRODUCIBILITY.md)
+- [Capture scale and inference — English](docs/RESOLUTION_AND_INFERENCE.md)
+- [Architecture — English](docs/ARCHITECTURE.md)
+- [Spectroscopy records — English](docs/SPECTRA.md)
+- [Source and dependency provenance — English](docs/PROVENANCE.md)
+- [Student instructions — Chinese](README_zh.md)
+- [Spatial-map commands and counting definitions — Chinese](docs/SPATIAL_LAYER_MAPS_zh.md)
+- [Developer rules](AGENTS.md)
