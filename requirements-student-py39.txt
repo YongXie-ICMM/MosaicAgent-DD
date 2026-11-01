@@ -1,0 +1,34 @@
+# Unified student trial environment, compatible with instrument Python 3.9.18 x64.
+# NumPy/OpenCV versions match the successful 2026-10-31 instrument logs.
+# Keep this pinned profile separate from the broader developer requirements.
+numpy==1.26.2
+opencv-python==4.10.0.84
+scipy==1.13.1
+Pillow==10.4.0
+torch==2.2.2
+matplotlib==3.8.4
+pandas==2.2.3
+openpyxl==3.1.5
+
+# Transitive dependencies resolved for Windows x64 / Python3.9 on2026-11-01.
+contourpy==1.3.0
+cycler==0.12.1
+et-xmlfile==2.0.0
+filelock==3.19.1
+fonttools==4.60.2
+fsspec==2025.10.0
+importlib-resources==6.5.2
+jinja2==3.1.6
+kiwisolver==1.4.7
+markupsafe==3.0.4
+mpmath==1.3.0
+networkx==3.2.1
+packaging==26.3
+pyparsing==3.3.3
+python-dateutil==3.0.0
+pytz==2026.6
+six==1.17.0
+sympy==1.14.0
+typing-extensions==4.16.0
+tzdata==2026.6
+zipp==3.23.1

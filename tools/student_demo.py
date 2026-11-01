@@ -477,6 +477,34 @@ def compare_scale(root: Path = REPO) -> Path:
 
 def prepare_workbench_config(root: Path = REPO) -> Path:
     root = root.resolve()
+    path = root / "outputs/workbench/workbench.local.json"
+    if path.exists() or path.is_symlink():
+        # A teacher may have selected a real project and the separately verified
+        # communication-log scanner. Relaunching must not reset either choice.
+        try:
+            def invalid_constant(value):
+                raise ValueError(f"Nonfinite JSON value: {value}")
+            saved = json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=invalid_constant)
+            if not isinstance(saved, dict) or any(not isinstance(saved.get(key), str)
+                    for key in ("project_root", "scan_repo", "inference_results")):
+                raise ValueError("Project, scanner and inference paths must be strings")
+        except (OSError, ValueError) as exc:
+            raise DemoError("Existing workbench configuration is invalid and was preserved; ask the teacher to check it. / "
+                            f"已有工作台配置无法读取或格式不正确，原文件已保留，请老师检查：{path}") from exc
+        return path
+    if (root / "trial_kit.json").exists() or (root / "trial_kit.json").is_symlink():
+        # The complete trial kit binds a separate frozen C1 scanner; never fall
+        # back to the older hash-locked scanner if its marker is invalid.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("dd_trial_config", Path(__file__).with_name("dd_trial.py"))
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        try:
+            settings = helper.initial_config(root)
+        except (OSError, ValueError) as exc:
+            raise DemoError("Complete trial-kit validation failed; no scanner selected: " + str(exc)) from exc
+        atomic_json(path, settings)
+        return path
     latest = root / "outputs/demo/latest.json"
     inference = ""
     if latest.is_file():
@@ -491,7 +519,6 @@ def prepare_workbench_config(root: Path = REPO) -> Path:
             raise DemoError("Demo results point outside this package / 结果目录指向本包之外") from exc
         if (run / "results/run_manifest.json").is_file():
             inference = str(run.resolve())
-    path = root / "outputs/workbench/workbench.local.json"
     atomic_json(path, {"project_root": str(root), "scan_repo": str(root / "acquisition"),
                        "inference_results": inference})
     return path

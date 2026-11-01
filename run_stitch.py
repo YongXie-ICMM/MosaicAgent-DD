@@ -62,6 +62,8 @@ sys.path.insert(0, str(HERE))
 import tiles as T                      # noqa: E402
 import kimi_agents as KA               # noqa: E402
 import stitch_profile as SP             # noqa: E402
+import stitch_colour as SC              # noqa: E402
+from stitch_colour_policy import apply_policy  # noqa: E402
 from tools.stitch_setup.acquisition_metadata import inspect_acquisition  # noqa: E402
 
 
@@ -892,6 +894,8 @@ def main():
     ap.add_argument("--stitch-profile", help="图像尺寸与原图像素位移标定 JSON")
     ap.add_argument("--grid-policy", choices=("auto", "preserve", "legacy"), default="auto",
                     help="auto：完整扫描网格保留记录行号及全部格位；legacy：旧版推行与覆盖救回")
+    ap.add_argument("--colour-correction", choices=("auto", "off"), default="auto",
+                    help="默认自动逐图校色；off 仅供开发者复现旧版，学生无需设置")
     ap.add_argument("--input-preflight", help="Prepared setup preflight.json; recheck its input and metadata binding before execution")
     ap.add_argument("--preflight-only", action="store_true",
                     help="只读检查所有原图尺寸、profile 和工作目录；必须配合 --no-ai")
@@ -917,6 +921,7 @@ def main():
         inventory = SP.inspect_tiles(ts)
         resolved = SP.resolve_profile(profile, inventory, args.scale_div, args.out_scale, args.full)
         resolved["grid_policy"] = resolve_grid_policy(args.grid_policy, source)
+        apply_policy(resolved, args.colour_correction, data_dir, inventory)
         acquisition, acquisition_warnings = inspect_acquisition(
             data_dir, inventory, "flat-grid" if source == "flat-physical-grid" else source)
         if args.input_preflight:
@@ -932,6 +937,7 @@ def main():
         stop(f"Preflight failed: {exc}")
     args.scale_div, args.out_scale = resolved["scale_div"], resolved["out_scale"]
     args.grid_policy = resolved["grid_policy"]
+    args.colour_input = resolved["colour_input"]
     report = _preflight_report(resolved, inventory, binding, source, acquisition)
     report["grid_policy"] = args.grid_policy
     for warning in resolved["warnings"] + acquisition_warnings:
@@ -959,9 +965,14 @@ def main():
             binding = SP.make_run_binding(resolved, inventory, acquisition)
             source = "validated-layout"
             resolved["grid_policy"] = args.grid_policy = "legacy"
+            apply_policy(resolved, args.colour_correction, data_dir, inventory)
+            args.colour_input = resolved["colour_input"]
+            binding = SP.make_run_binding(resolved, inventory, acquisition)
+            if (work / "state.json").exists():
+                SP.check_work_binding(work, binding)
             report = _preflight_report(resolved, inventory, binding, source, acquisition)
             report["grid_policy"] = args.grid_policy
-        except (SP.ProfileError, T.LayoutError) as exc:
+        except (SP.ProfileError, T.LayoutError, OSError, ValueError) as exc:
             stop(f"Preflight failed: {exc}")
     elif layout is not None and args.layout:
         commit_layout(data_dir, layout, work, source=f"file:{args.layout}")
@@ -983,13 +994,62 @@ def main():
         _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start)
 
 
+def step_colour(args, work, tiles, positions, flatfield, state):
+    """Correct every tile by default; a failed estimate never silently falls back."""
+    mode = getattr(args, "colour_correction", "off")
+    evidence = {"mode": mode, "input": getattr(args, "colour_input", {"state": "raw"}),
+                "run_binding": state.d.get("run_binding")}
+    gains = None
+    if mode == "off":
+        evidence.update(status="disabled_by_explicit_request")
+    elif evidence["input"].get("state") == "already_corrected":
+        evidence.update(status="verified_prior_correction", applied_again=False)
+        log("  已核对派生图像及校色清单，不重复施加颜色增益")
+    else:
+        banner("6b", "自动颜色校正：相邻重叠区测量 + 每张照片 RGB 增益")
+        try:
+            gains, result = SC.solve_tile_gains(
+                tiles, positions, flatfield, scale_div=args.scale_div,
+                binding=state.d.get("run_binding"), log=log)
+            evidence.update(result, status="ready_for_render", source_images_modified=False,
+                            render_verified=False)
+        except (ValueError, RuntimeError, OSError) as exc:
+            evidence.update(getattr(exc, "report", {}), status="failed", error=str(exc))
+            state.d["colour_correction"] = evidence
+            state.save()
+            (work / "colour_correction.json").write_text(
+                json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            stop(f"自动颜色校正未通过，已停止出图：{exc}。记录：{work / 'colour_correction.json'}")
+    state.d["colour_correction"] = evidence
+    (work / "colour_correction.json").write_text(
+        json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    state.save()
+    return gains
+
+
+def _colour_render_outcome(work, state, *, verified, error=None):
+    evidence = state.d["colour_correction"]
+    evidence["render_verified"] = bool(verified)
+    if not verified:
+        evidence.update(status="render_failed", render_error=str(error))
+    elif evidence["status"] == "ready_for_render":
+        evidence["status"] = "applied_at_render"
+    (work / "colour_correction.json").write_text(
+        json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    state.save()
+
+
 def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     # This pipeline reruns every stage. Invalidate earlier success before any
     # decoding or solving can fail, while leaving source-bound caches reusable.
-    for key in ("qc", "conflict", "register", "rescue", "render", "inspect", "summary"):
+    for key in ("qc", "conflict", "register", "rescue", "colour_correction", "render", "inspect", "summary"):
         st.d.pop(key, None)
     st.d["_done"] = []
+    st.d["colour_correction"] = {"status": "pending", "render_verified": False,
+                                 "run_binding": st.d.get("run_binding")}
     st.save()
+    (work / "colour_correction.json").write_text(
+        json.dumps(st.d["colour_correction"], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     banner(2, f"建缓存（1/{args.scale_div}）+ 全帧对焦分数")
     info = T.build_cache(ts, cache_dir, scale_div=args.scale_div)
     log(f"  新解码 {info['cached']} 张，旧缓存补算全帧分数 {info.get('rescored', 0)} 张，"
@@ -1018,6 +1078,7 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     log(f"  全局求解残差 RMS {diag.get('residual_rms'):.2f} px，"
         f"连通分量 {diag.get('n_components')}")
     np.save(work / "positions.npy", pos)
+    colour_positions = pos.copy()
     (work / "positions_tids.json").write_text(json.dumps([t.tid for t in cand], ensure_ascii=False), encoding="utf-8")
     st.d["register"] = {"stats": rstats, "diag": {k: v for k, v in diag.items()
                                                   if k != "per_edge_residual"}}
@@ -1037,11 +1098,17 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     ff = B.estimate_flatfield(keep, cache_dir, scale_div=args.scale_div)
     np.save(work / "flatfield.npy", ff)
     log(f"  渐晕场 {ff.shape}，动态范围 {ff.min():.3f}-{ff.max():.3f}")
+    gains = step_colour(args, work, cand, colour_positions, ff, st)
 
     banner(7, "渲染")
     out = os.path.abspath(args.out)
-    rinfo = B.render(keep, pos, out, out_scale=args.out_scale,
-                     cache_dir=cache_dir, flatfield=ff, use_full=args.full)
+    colour_kwargs = {"tile_gains_rgb": {t.tid: gains[t.tid] for t in keep}} if gains is not None else {}
+    try:
+        rinfo = B.render(keep, pos, out, out_scale=args.out_scale,
+                         cache_dir=cache_dir, flatfield=ff, use_full=args.full, **colour_kwargs)
+    except Exception as exc:
+        _colour_render_outcome(work, st, verified=False, error=exc)
+        raise
     log(f"  出图 {rinfo['out_w']}x{rinfo['out_h']} -> {out}")
     missing_render = sorted({t.tid for t in keep} - set(rinfo["rendered_tids"]))
     incomplete_render = sorted(set(missing_render) | set(rinfo["failed_load_tids"])
@@ -1049,13 +1116,19 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     rinfo["missing_selected_tids"] = missing_render
     rinfo["incomplete_tids"] = incomplete_render
     st.d["render"] = rinfo
-    if args.grid_policy == "preserve" and incomplete_render:
+    if incomplete_render and (args.grid_policy == "preserve"
+                              or getattr(args, "colour_correction", "off") == "auto"):
+        _colour_render_outcome(work, st, verified=False, error=f"Incomplete tiles: {incomplete_render}")
         # A failed rerun must not leave an earlier success summary in the state.
         st.d.pop("summary", None)
         st.d["_done"] = [x for x in st.d.get("_done", []) if x not in ("render", "summary")]
         st.save()
         stop(f"完整网格渲染失败：{len(incomplete_render)} 张未完整绘制 {incomplete_render[:10]}；"
              f"请检查 {st.path}，当前输出不能作为完整拼接结果。")
+    _colour_render_outcome(work, st, verified=not incomplete_render,
+                           error=f"Incomplete tiles: {incomplete_render}" if incomplete_render else None)
+    if not incomplete_render:
+        st.mark("colour_correction")
     st.mark("render")
 
     findings = step_inspect(out, pool, st)
@@ -1064,6 +1137,7 @@ def _run_pipeline(args, work, cache_dir, ts, pool, client, st, t_start):
     st.d["summary"] = {
         "tiles_total": len(ts), "tiles_selected": len(keep), "tiles_used": rinfo["n_placed"],
         "render_failed": incomplete_render, "grid_policy": args.grid_policy,
+        "colour_correction": st.d["colour_correction"]["status"],
         "dropped": sorted(final_drop),
         "rescued": sorted(rescued), "conflict_losers": sorted(losers),
         "overlap_x_px": rstats.get("measured_overlap_x_px"),

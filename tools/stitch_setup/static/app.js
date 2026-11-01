@@ -5,7 +5,7 @@
     zh: {
       skip: '跳到配置', setupTitle: '拼接配置', back: '返回分析工作台', eyebrow: 'RAW TILES → STITCHING PROFILE',
       headline: '先确认图块，再准备拼接。', subtitle: '按顺序检查文件夹、确认采集几何，保存一份可以复核的配置与命令。',
-      scope: '这里只检查本机文件并保存配置。保存后，在终端中运行命令才会开始拼接。',
+      scope: '默认自动校正逐图色差，无需选择，原图保留。这里先保存配置，运行命令后开始校正和拼接。',
       inspectTitle: '检查原始图块', inspectIntro: '填写运行工作台的电脑上的文件夹路径。选择原始图块，而不是已经拼好的大图。',
       dataDir: '原始图块文件夹', dataDirHelp: '在文件管理器中复制完整路径并粘贴到这里。此操作不会上传图像。',
       layoutPath: '已有布局 JSON 文件路径（可选）', layoutHelp: '只有已知布局文件时才填写；留空会尝试识别受支持的图块命名和列文件夹结构。',
@@ -46,7 +46,7 @@
     en: {
       skip: 'Skip to setup', setupTitle: 'STITCH SETUP', back: 'Back to workbench', eyebrow: 'RAW TILES → STITCHING PROFILE',
       headline: 'Check your tiles. Prepare your stitch.', subtitle: 'Inspect the folder, confirm the acquisition geometry, and save a profile and command for review.',
-      scope: 'This page checks local files and saves configuration. Stitching starts only when you run the saved command in a terminal.',
+      scope: 'Per-tile colour correction is automatic and preserves raw images. This page prepares the command; running it starts correction and stitching.',
       inspectTitle: 'Inspect the raw tiles', inspectIntro: 'Enter a folder on the computer running the workbench. Choose raw tiles, rather than an existing mosaic.',
       dataDir: 'Raw tile folder', dataDirHelp: 'Copy the full path from your file manager and paste it here. Images stay on this computer.',
       layoutPath: 'Existing layout JSON path (optional)', layoutHelp: 'Fill this only if you have a known layout file. Otherwise the checker tries supported tile names and column folders.',
@@ -146,6 +146,7 @@
   }
 
   function renderControls() {
+    $('runWorkflowButton').disabled = !prepared?.workflow_ticket || !!busy;
     const kind = profileKind();
     $('inspectButton').disabled = !!busy;
     $('inspectButton').textContent = t(busy === 'inspect' ? 'inspecting' : 'inspectButton');
@@ -192,6 +193,8 @@
 
   function renderPrepared() {
     $('preparedResult').hidden = !prepared;
+    $('runWorkflowButton').disabled = !prepared || !prepared.workflow_ticket || !!busy;
+    $('runWorkflowButton').textContent = language === 'zh' ? '开始自动校色与拼接 →' : 'Start automatic colour correction and stitching →';
     $('copyStatus').textContent = copyStatus ? t(copyStatus) : '';
     if (!prepared) return;
     $('savedPaths').replaceChildren();
@@ -362,6 +365,21 @@
   ['dataDir', 'layoutPath'].forEach(id => $(id).addEventListener('input', invalidatePaths));
   $('prepareForm').addEventListener('input', () => { invalidatePrepared(); renderControls(); });
   $('languageButton').addEventListener('click', () => { language = language === 'zh' ? 'en' : 'zh'; renderLanguage(); });
+  $('runWorkflowButton').addEventListener('click', async () => {
+    if (!prepared?.workflow_ticket || busy) return;
+    busy = 'run';
+    $('runWorkflowButton').disabled = true;
+    try {
+      const result = await post('/api/workflow/stitch', {ticket: prepared.workflow_ticket});
+      if (!result.job?.id) throw new Error('任务尚未创建 / Job was not created');
+      location.href = '/workflow/?step=stitch';
+    } catch (error) {
+      $('runWorkflowStatus').textContent = error.message || '未启动，请查看检查记录 / Not started; check the record';
+    } finally {
+      busy = null;
+      renderPrepared();
+    }
+  });
   $('copyButton').addEventListener('click', async () => {
     if (!prepared) return;
     const command = prepared.command;
@@ -382,6 +400,8 @@
     $('copyStatus').textContent = copyStatus ? t(copyStatus) : '';
   });
 
+  const incoming = new URLSearchParams(location.search).get('data_dir');
+  if (incoming) $('dataDir').value = incoming;
   renderLanguage();
   connect();
 })();
