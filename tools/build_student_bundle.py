@@ -55,7 +55,7 @@ TOP_LEVEL_COPIES = {"00_STUDENT_GUIDE_zh.pdf": "docs/STUDENT_GUIDE_zh.pdf"}
 EXCLUDED_TOP_LEVEL = {".github", ".gitattributes"}
 EXCLUDED_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", "outputs", "dist", "_work", "_stitch_work",
                  "cache", "kimi_cache", "_kimi_cache", "node_modules", "workbench_history", "history", "scan_runs",
-                 "drivers", "camera_history", "colour_calibration", "shared_history"}
+                 "drivers", "camera_history", "colour_calibration", "shared_history", "Memory"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".orig", ".rej", ".DS_Store"}
 
 

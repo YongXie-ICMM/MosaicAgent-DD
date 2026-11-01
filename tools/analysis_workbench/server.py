@@ -88,6 +88,9 @@ class Workbench:
         self.errors = []
         self._scanner_cache = {'repo': None, 'at': 0.0, 'info': None}
         self._history_cache = {'repo': None, 'signature': None, 'at': 0.0, 'rows': None}
+        self._dd_workflow = None
+        self._memory_store = None
+        self._workflow_artifact_cache = {}
         bundled_scan = REPO / 'acquisition'
         scan = bundled_scan if (bundled_scan / 'Auto_Scan/launch_scan.py').is_file() else REPO.parent / 'AmScope-Camera'
         self.config = {'project_root': '', 'scan_repo': str(scan), 'inference_results': ''}
@@ -97,6 +100,200 @@ class Workbench:
         else:
             atomic_json(self.config_path, self.config)
         # The 'opened' event is written by main() once this process actually serves the port.
+
+    @property
+    def memory_root(self):
+        base = self.project or self.config_path.parent
+        if (base / 'session.json').is_file():
+            base = base.parent
+        return base / 'Memory'
+
+    @property
+    def memory(self):
+        if self._memory_store is None:
+            from memory_store import MemoryStore
+            self._memory_store = MemoryStore(self.memory_root)
+            self._memory_store.legacy_reference(self.runtime, 'Previous workbench history; sources retained')
+        return self._memory_store
+
+    @property
+    def dd_workflow(self):
+        if self._dd_workflow is None:
+            from workflow import DDWorkflow
+            self._dd_workflow = DDWorkflow(self.memory_root, repo=REPO)
+        return self._dd_workflow
+
+    def workflow_state(self):
+        state = self.dd_workflow.state()
+        transfer = self.dd_workflow.directory / 'handover_intake.json'
+        state['handover'] = read_json(transfer) if transfer.is_file() else {'status': 'waiting'}
+        state['scanner'] = self._inspect_scanner(self.config['scan_repo'])
+        scanner = state['scanner']
+        scanner['dd_communication_ready'] = False
+        package = scanner.get('package') or {}
+        if package.get('package_files_match_manifest') is True and scanner.get('folder'):
+            manifest = read_json(Path(scanner['folder']) / 'delivery_manifest.json', limit=2 * 1024 * 1024)
+            names = {item.get('path') for item in manifest.get('files', []) if isinstance(item, dict)}
+            scanner['dd_communication_ready'] = {
+                'device_diagnostics.py', 'camera_observability.py', 'collect_device_diagnostics.py'
+            }.issubset(names)
+        state['platform'] = platform.system()
+        state['memory'] = self.memory.summary()
+        job_history = self.dd_workflow.directory / 'events.jsonl'
+        if job_history.is_file():
+            with job_history.open('rb') as stream:
+                stream.seek(max(0, job_history.stat().st_size - 128 * 1024))
+                if stream.tell():
+                    stream.readline()
+                state['memory']['workflow_recent_event_count'] = len(stream.read().splitlines())
+        current = state['handover'].get('path')
+        outputs, active = [], []
+        for job in reversed(state.get('jobs', [])):
+            source_matches = current and job.get('source_dir') == current
+            inherited = any(inside(Path(item.get('path', '')), parent)
+                            for item in job.get('source_files', []) for parent in outputs
+                            if item.get('path'))
+            if not current or source_matches or inherited:
+                active.append(job)
+                if job.get('output_dir'):
+                    outputs.append(Path(job['output_dir']).resolve())
+        state['active_jobs'] = list(reversed(active))
+        state['active_prepared'] = [row for row in state.get('prepared', [])
+                                    if not current or row.get('source_dir') == current]
+        for job in state.get('jobs', []):
+            declared = [dict(item) for item in job.get('artifacts', [])
+                        if isinstance(item, dict) and item.get('path')]
+            job['artifacts'] = []
+            root = Path(job.get('output_dir') or self.runtime).resolve()
+            if job.get('status') != 'completed' or not root.is_dir():
+                continue
+            for record in declared[:128]:
+                path = Path(record['path']).resolve()
+                if not path.is_file() or not inside(path, root):
+                    job.update(status='attention', error='Verified output missing or moved; inspect again.')
+                    continue
+                if path.is_file() and inside(path, root) and path.suffix.lower() in {'.png', '.svg', '.csv', '.json'}:
+                    info = path.stat()
+                    key = (str(path), info.st_size, info.st_mtime_ns, info.st_ctime_ns, record.get('sha256'))
+                    valid = self._workflow_artifact_cache.get(key)
+                    if valid is None:
+                        value = hashlib.sha256()
+                        with path.open('rb') as stream:
+                            for part in iter(lambda: stream.read(1024 * 1024), b''):
+                                value.update(part)
+                        valid = bool(record.get('sha256') and value.hexdigest() == record['sha256'])
+                        if len(self._workflow_artifact_cache) > 2048:
+                            self._workflow_artifact_cache.clear()
+                        self._workflow_artifact_cache[key] = valid
+                    if not valid:
+                        job['artifact_warning'] = '输出在核验后已改变，请重新核查 / Output changed after validation'
+                        job.update(status='attention', error=job['artifact_warning'])
+                        continue
+                    relative = path.relative_to(root).as_posix()
+                    job['artifacts'].append({'name': relative, 'kind': 'image',
+                        'sha256': record['sha256'],
+                        'url': '/api/workflow/artifact?job=' + quote(job['id']) + '&name=' + quote(relative)})
+        return state
+
+    def workflow_action(self, action, body):
+        if action == 'scanner':
+            scanner = self.workflow_state()['scanner']
+            if not scanner.get('dd_communication_ready'):
+                raise ValueError('请老师在设置中连接已核对的通信日志版扫描程序文件夹；当前入口不会启动旧版采集程序。')
+            return self.action('scan', None)
+        if action == 'handover':
+            from workflow_intake import inspect_transfer
+            value = body.get('path')
+            if not isinstance(value, str) or not value or len(value) > 4096:
+                raise ValueError('请选择完整的原始扫描文件夹。')
+            result = inspect_transfer(value, REPO)
+            result['memory_snapshot'] = self.memory.snapshot_acquisition(result['path'])
+            atomic_json(self.dd_workflow.directory / 'handover_intake.json', result)
+            self.memory.record('handover', 'verified', source=result['path'],
+                               session_id=result['session_id'], input_fingerprint=result['input_fingerprint'])
+            self.event('images', 'handover_verified', words('本轮原图及采集日志已核对。', 'Scan images and acquisition records verified.'),
+                       source=result['path'], session_id=result['session_id'])
+            return {'ok': True, 'handover': result}
+        if action == 'stitch':
+            ticket = body.get('ticket')
+            if not isinstance(ticket, str) or not ticket or len(ticket) > 128:
+                raise ValueError('请先检查照片并保存拼接配置。')
+            return {'ok': True, 'job': self.dd_workflow.start_stitch(ticket)}
+        if action in {'layers', 'spatial'}:
+            from workflow_analysis import prepare_layers, prepare_spatial
+            output = self.dd_workflow.directory / 'analysis_outputs' / secrets.token_hex(12)
+            if action == 'layers':
+                config = body.get('config_path')
+                if not isinstance(config, str) or not config or len(config) > 4096:
+                    raise ValueError('请老师先保存本样品的模型和尺度配置。')
+                prior = [job for job in self.workflow_state().get('active_jobs', [])
+                         if job.get('kind') == 'stitch' and job.get('status') == 'completed']
+                expected = prior[0].get('output_path') if prior else None
+                plan = prepare_layers(config, output, REPO, expected_mosaic=expected)
+            else:
+                fields = [body.get(key) or None for key in ('mask_path', 'valid_path', 'exclusion_path')]
+                if any(value is not None and (not isinstance(value, str) or len(value) > 4096) for value in fields):
+                    raise ValueError('请输入本机分割文件路径。')
+                sample = body.get('sample') or 'sample'
+                if not isinstance(sample, str):
+                    raise ValueError('样品名称须为文本。')
+                whole = body.get('whole_canvas_supported') is True
+                plan = prepare_spatial(*fields, sample, output, REPO, whole_canvas_supported=whole)
+            ticket = self.dd_workflow.register_plan(plan)
+            identity = ticket['id'] if isinstance(ticket, dict) else ticket
+            return {'ok': True, 'job': self.dd_workflow.start(identity)}
+        raise ValueError('未知的 DD 流程操作。')
+
+    def workflow_artifact(self, job_id, relative):
+        job = next((row for row in self.dd_workflow.state().get('jobs', []) if row.get('id') == job_id), None)
+        if not job or job.get('status') != 'completed':
+            raise ValueError('此任务尚无已核验的结果。')
+        root = Path(job['output_dir']).resolve()
+        path = (root / relative).resolve()
+        record = next((item for item in job.get('artifacts', [])
+                       if isinstance(item, dict) and item.get('path')
+                       and Path(item['path']).resolve() == path), None)
+        if (not inside(path, root) or not path.is_file() or path.suffix.lower() not in {'.png', '.svg', '.csv', '.json'}
+                or path.stat().st_size > 64 * 1024 * 1024):
+            raise ValueError('结果不可预览。')
+        if not record or not record.get('sha256'):
+            raise ValueError('Result is not a declared verified artifact.')
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != record['sha256']:
+            raise ValueError('Result SHA-256 changed after validation; inspect again.')
+        return data, mimetypes.guess_type(str(path))[0] or 'application/octet-stream', path.name
+
+    def workflow_memory(self):
+        summary = self.memory.summary()
+        history = self.dd_workflow.directory / 'events.jsonl'
+        workflow_events = []
+        if history.is_file():
+            with history.open('rb') as stream:
+                stream.seek(max(0, history.stat().st_size - 128 * 1024))
+                if stream.tell():
+                    stream.readline()
+                for line in stream.read().decode('utf-8').splitlines():
+                    try:
+                        workflow_events.append(json.loads(line))
+                    except ValueError:
+                        pass
+        return {'memory': summary, 'workflow_events': workflow_events[-100:],
+                'jobs': self.dd_workflow.state().get('jobs', []),
+                'note': 'Memory contains provenance and step histories. Raw images remain at their recorded source paths.'}
+
+    def workflow_log(self, identity):
+        job = next((row for row in self.dd_workflow.state().get('jobs', []) if row.get('id') == identity), None)
+        if not job:
+            raise ValueError('找不到此任务记录。')
+        path = Path(job['log_path']).resolve()
+        if not inside(path, self.memory_root) or not path.is_file():
+            raise ValueError('任务日志尚未生成。')
+        with path.open('rb') as stream:
+            stream.seek(max(0, path.stat().st_size - 256 * 1024))
+            if stream.tell():
+                stream.readline()
+            data = stream.read()
+        return data
 
     @property
     def project(self):
@@ -139,6 +336,8 @@ class Workbench:
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
             f.flush()
             os.fsync(f.fileno())
+        if self._memory_store is not None:
+            self.memory.record(tool, kind, message=message, **extra)
         return record
 
     def events(self):
@@ -475,6 +674,10 @@ class Workbench:
         if not isinstance(values, dict) or any(k not in self.config for k in values):
             raise ValueError('Unsupported settings')
         changed = dict(self.config)
+        if ('project_root' in values and values['project_root'] != self.config.get('project_root')
+                and self._dd_workflow is not None
+                and any(job.get('status') in {'starting', 'running'} for job in self.dd_workflow.state().get('jobs', []))):
+            raise ValueError('请等待当前流程完成后再切换项目，保留本轮 Memory 记录。')
         for key, value in values.items():
             if not isinstance(value, str) or len(value) > 2048:
                 raise ValueError('Expected a folder path')
@@ -487,6 +690,9 @@ class Workbench:
         with self.lock:
             atomic_json(self.config_path, changed)
             self.config = changed
+            if 'project_root' in values:
+                self._dd_workflow = None
+                self._memory_store = None
             self.event('workbench', 'settings_saved', words('已更新本机路径。', 'Local paths updated.'))
         return {'ok': True, 'message': words('设置已保存', 'Settings saved')}
 
@@ -587,6 +793,20 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/api/state':
                 return self.send(self.server.workbench.state())
+            if path == '/api/workflow/state':
+                return self.send(self.server.workbench.workflow_state())
+            if path == '/api/workflow/memory':
+                return self.send(self.server.workbench.workflow_memory())
+            if path == '/api/workflow/log':
+                from urllib.parse import parse_qs
+                query = parse_qs(urlsplit(self.path).query)
+                return self.send(self.server.workbench.workflow_log(query.get('job', [''])[0]), mime='text/plain; charset=utf-8', artifact=True)
+            if path == '/api/workflow/artifact':
+                from urllib.parse import parse_qs
+                query = parse_qs(urlsplit(self.path).query)
+                data, mime, name = self.server.workbench.workflow_artifact(
+                    query.get('job', [''])[0], query.get('name', [''])[0])
+                return self.send(data, mime=mime, attachment=name if mime == 'image/svg+xml' else None, artifact=True)
             if path.startswith('/api/artifact/'):
                 data, mime, name = self.server.workbench.artifact(path.rsplit('/', 1)[-1])
                 attach = name if mime not in {'text/html', 'application/pdf'} and not mime.startswith('image/') else None
@@ -596,7 +816,9 @@ class Handler(BaseHTTPRequestHandler):
             if path in setup_files:
                 target = REPO / 'tools/stitch_setup/static' / setup_files[path]
                 return self.send(target.read_bytes(), mime=(mimetypes.guess_type(str(target))[0] or 'text/plain') + '; charset=utf-8')
-            names = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
+            names = {'/': 'workflow.html', '/workflow/': 'workflow.html',
+                     '/workflow/workflow.js': 'workflow.js', '/workflow/workflow.css': 'workflow.css',
+                     '/review/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
             if path in names:
                 target = HERE / 'static' / names[path]
                 return self.send(target.read_bytes(), mime=(mimetypes.guess_type(str(target))[0] or 'text/plain') + '; charset=utf-8')
@@ -622,15 +844,23 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.server.workbench.configure(body)
             elif self.path == '/api/action':
                 result = self.server.workbench.action(body.get('tool'), body.get('view'))
+            elif self.path.startswith('/api/workflow/'):
+                result = self.server.workbench.workflow_action(self.path.rsplit('/', 1)[-1], body)
             elif self.path in {'/api/stitch/inspect', '/api/stitch/prepare'}:
                 if str(REPO) not in sys.path:
                     sys.path.insert(0, str(REPO))
                 try:
                     from tools.stitch_setup.service import dispatch
+                    if self.path.endswith('/prepare'):
+                        body['output_parent'] = str(self.server.workbench.dd_workflow.directory / 'stitch_runs')
                     result = dispatch(self.path.rsplit('/', 1)[-1], body)
+                    if result.get('status') == 'inspected':
+                        result['inspection']['default_output_parent'] = str(self.server.workbench.dd_workflow.directory / 'stitch_runs')
                 except ImportError as exc:
                     raise ValueError('Stitch setup needs the MosaicAgent requirements: python -m pip install -r requirements.txt. ' + str(exc)) from exc
                 if result.get('status') == 'profile_prepared':
+                    ticket = self.server.workbench.dd_workflow.register_prepared(result)
+                    result['workflow_ticket'] = ticket['id'] if isinstance(ticket, dict) else ticket
                     self.server.workbench.event('images', 'profile_prepared',
                         words('拼接参数与输入检查已保存；尚未运行拼接。',
                               'Stitch profile and input checks saved; stitching has not run.'),

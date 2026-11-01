@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MosaicAgent · DD 实验流程</title>
+  <link rel="stylesheet" href="/workflow/workflow.css">
+  <script src="/workflow/workflow.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <a class="brand" href="/workflow/" aria-label="MosaicAgent DD 实验流程"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>MosaicAgent<small>DD 实验流程</small></span></a>
+    <div class="header-tools"><span id="connection" class="connection" role="status">正在连接本机工作台</span><a href="/review/?stage=scan&amp;setup=1" class="settings-link">项目与仪器设置</a></div>
+  </header>
+
+  <main>
+    <section class="intro"><div><p class="eyebrow">DIGITAL DISCOVERY · 学生操作入口</p><h1>从显微扫描，到局部层数分布。</h1><p class="intro-copy">沿箭头完成每一步。校色随拼接自动执行，原始数据始终保留。</p></div><div class="project-pill"><span>当前项目</span><strong id="projectName">尚未连接项目</strong></div></section>
+
+    <nav id="steps" class="steps" aria-label="实验与分析流程">
+      <button class="step active" type="button" data-step="scan" aria-current="step" aria-controls="panel-scan"><span class="step-number">01</span><span class="step-label">显微扫描</span><span class="step-status" data-status="scan">等待采集</span></button>
+      <button class="step" type="button" data-step="logs" aria-controls="panel-logs"><span class="step-number">02</span><span class="step-label">日志交接</span><span class="step-status" data-status="logs">等待检查</span></button>
+      <button class="step" type="button" data-step="colour" aria-controls="panel-colour"><span class="step-number">03</span><span class="step-label">自动校色</span><span class="step-status" data-status="colour">随拼接执行</span></button>
+      <button class="step" type="button" data-step="stitch" aria-controls="panel-stitch"><span class="step-number">04</span><span class="step-label">大面积拼接</span><span class="step-status" data-status="stitch">等待准备</span></button>
+      <button class="step" type="button" data-step="review" aria-controls="panel-review"><span class="step-number">05</span><span class="step-label">图像复核</span><span class="step-status" data-status="review">等待结果</span></button>
+      <button class="step" type="button" data-step="layers" aria-controls="panel-layers"><span class="step-number">06</span><span class="step-label">层数识别</span><span class="step-status" data-status="layers">等待分析</span></button>
+      <button class="step" type="button" data-step="spatial" aria-controls="panel-spatial"><span class="step-number">07</span><span class="step-label">Figure 4 空间图</span><span class="step-status" data-status="spatial">等待层数图</span></button>
+    </nav>
+
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div class="workspace">
+      <div class="main-column">
+        <section id="panel-scan" class="panel" aria-labelledby="scanTitle">
+          <div class="panel-heading"><p class="eyebrow">01 / 仪器采集</p><span class="badge">Windows 仪器电脑</span></div>
+          <h2 id="scanTitle">打开扫描程序，先做一轮小扫描。</h2><p class="description">采集参数在原有扫描窗口中设置；这里负责连接流程与查看记录。</p>
+          <ol class="instructions"><li><strong>连接相机与位移台。</strong>在下方打开采集程序，确认看到的是显微镜实时画面。</li><li><strong>先完成 3 × 3 验证。</strong>检查调焦、移动方向、保存目录及照片，再设置大面积扫描。</li><li><strong>保留原图与完整记录。</strong>大面积扫描完成后，进入“日志交接”。</li></ol>
+          <p id="scanPlatform" class="info-note">正在读取仪器连接配置。</p>
+          <div class="primary-row"><button id="launchScan" class="button primary" type="button" disabled>打开扫描程序 <span aria-hidden="true">↗</span></button><a href="/review/?stage=scan&amp;setup=1" class="secondary-link">设置扫描程序路径</a></div>
+          <p class="small-note">打开采集窗口不代表扫描已完成；以实际采集日志为准。</p>
+        </section>
+
+        <section id="panel-logs" class="panel" aria-labelledby="logsTitle" hidden>
+          <div class="panel-heading"><p class="eyebrow">02 / 数据与日志</p><span class="badge">每轮记录独立保存</span></div>
+          <h2 id="logsTitle">把本轮原图和记录一起交接。</h2><p class="description">将原图和同目录的扫描记录一起保留。可以直接检查扫描文件夹，无需另行打包。</p>
+          <ol class="instructions"><li>保留照片、<code>session.json</code>、<code>events.jsonl</code> 及原有诊断日志关联。</li><li>在下方填写该文件夹的完整路径，点击检查。</li><li>检查通过后，进入“自动校色”准备拼接。</li></ol>
+          <form id="handoverForm"><label for="handoverPath">扫描数据 / 已有交接文件夹路径</label><input id="handoverPath" name="path" type="text" autocomplete="off" spellcheck="false" placeholder="例如 D:\mosaic_photos\20261031_102905" required><p class="field-help">填写原图所在文件夹路径，不是 ZIP 文件。同次程序运行共用的通信日志仍按原始来源保留。</p><div class="primary-row"><button id="checkHandover" class="button primary" type="submit" disabled>检查交接数据与日志 <span aria-hidden="true">→</span></button></div></form>
+          <div id="handoverResult" class="result-note" hidden></div>
+        </section>
+
+        <section id="panel-colour" class="panel" aria-labelledby="colourTitle" hidden>
+          <div class="panel-heading"><p class="eyebrow">03 / 自动校色</p><span class="badge blue">默认开启 · 无需选择</span></div>
+          <h2 id="colourTitle">先检查原图，然后一起校色与拼接。</h2><p class="description">正常拼接已包含逐图颜色校正。系统利用相邻照片的重叠区域校正颜色差异，并保留校正记录。</p>
+          <div class="process-strip" aria-label="一次运行中的实际处理顺序"><span>原始照片</span><span aria-hidden="true">→</span><span>配准与自动校色</span><span aria-hidden="true">→</span><span>拼接结果</span></div>
+          <ol class="instructions"><li>点击下方进入拼接设置，填写本批次原始照片文件夹。</li><li>按页面提示检查图像尺寸及实际相邻图像，准备拼接参数。</li><li>在生成的设置页面直接开始处理，或返回这里的“大面积拼接”。</li></ol>
+          <div class="primary-row"><a id="prepareStitch" class="button primary" href="/stitch-setup/">检查原图并准备拼接 <span aria-hidden="true">→</span></a></div>
+          <p class="small-note">已经有经过文件哈希核验的校色数据时，系统会避免重复施加颜色增益。</p>
+        </section>
+
+        <section id="panel-stitch" class="panel" aria-labelledby="stitchTitle" hidden>
+          <div class="panel-heading"><p class="eyebrow">04 / 拼接运行</p><span class="badge blue">自动校色已接入</span></div>
+          <h2 id="stitchTitle">运行已经准备好的本批次参数。</h2><p class="description">系统使用已核验的原图与参数，执行配准、自动校色及拼接。处理进度来自后台实际运行记录。</p>
+          <div class="selected-batch"><span>本次将处理</span><strong id="preparedName">尚未准备拼接参数</strong><p id="preparedPath">先到“自动校色”步骤检查原图并准备参数。</p></div>
+          <details id="preparedDetails"><summary>查看其他已准备批次</summary><label for="preparedSelect">选择已核验的拼接设置</label><select id="preparedSelect"><option value="">暂无已准备批次</option></select></details>
+          <div class="primary-row"><button id="startStitch" class="button primary" type="button" disabled>开始自动校色与拼接 <span aria-hidden="true">→</span></button><a href="/stitch-setup/" class="secondary-link">准备新的批次</a></div>
+          <div id="stitchProgress" class="progress-note" role="status" hidden></div>
+        </section>
+
+        <section id="panel-review" class="panel" aria-labelledby="reviewTitle" hidden>
+          <div class="panel-heading"><p class="eyebrow">05 / 人工复核</p><span class="badge">先看图，再做层数分析</span></div>
+          <h2 id="reviewTitle">核对色带、接缝和完整扫描范围。</h2><p class="description">放大检查原图与拼接结果，特别是色差曾出现的列、样品边缘与稀疏区域。</p>
+          <figure class="mosaic-preview"><div id="mosaicEmpty" class="preview-empty"><span aria-hidden="true">▦</span><strong>等待实际拼接结果</strong><p>处理完成后，生成的预览和文件会显示在这里。</p></div><img id="mosaicImage" alt="本批次实际生成的拼接预览" hidden><figcaption id="mosaicCaption">尚无可用预览</figcaption></figure>
+          <ul class="review-points"><li>扫描范围内的照片是否全部保留，边缘有没有缺口。</li><li>相邻照片是否连续，列与列之间是否仍有明显色带。</li><li>原图、校色记录和拼接输出是否对应同一批次。</li></ul>
+          <div class="primary-row"><a id="openMosaic" class="button primary disabled" aria-disabled="true" tabindex="-1">打开拼接结果 <span aria-hidden="true">↗</span></a><a class="secondary-link" href="/review/?stage=images">进入原图与结果工作台</a></div>
+          <div id="stitchArtifacts" class="artifact-links"></div>
+        </section>
+
+        <section id="panel-layers" class="panel" aria-labelledby="layersTitle" hidden>
+          <div class="panel-heading"><p class="eyebrow">06 / 语义层数识别</p><span class="badge">使用老师指定的配置</span></div>
+          <h2 id="layersTitle">从已复核的拼接图生成层数图。</h2><p class="description">运行已有的 U-Net 层数分析程序，保存层数掩膜与统计记录。预测结果仍需与原图对照。</p>
+          <div class="layer-legend"><span><i class="layer-1"></i>1L 单层</span><span><i class="layer-2"></i>2L 双层</span><span><i class="layer-t"></i>TL 更厚层</span></div>
+          <form id="layersForm"><details id="configDetails" open><summary>老师提供的分析配置</summary><label for="configPath">层数分析配置 JSON 路径</label><input id="configPath" type="text" autocomplete="off" spellcheck="false" placeholder="填写老师已准备的配置文件完整路径" required><p class="field-help">配置中指定待分析图像、权重与输出位置。这里直接调用该配置，不替换模型。</p></details><div class="primary-row"><button id="startLayers" class="button primary" type="submit" disabled>运行层数识别 <span aria-hidden="true">→</span></button></div></form>
+          <div id="layersProgress" class="progress-note" role="status" hidden></div><p class="small-note">已有保存好的层数图时，可直接进入“Figure 4 空间图”。</p>
+        </section>
+
+        <section id="panel-spatial" class="panel" aria-labelledby="spatialTitle" hidden>
+          <div class="panel-heading"><p class="eyebrow">07 / 局部空间统计</p><span class="badge blue">6 × 11 网格</span></div>
+          <h2 id="spatialTitle">把 1L、2L、TL 的局部分布画在一起。</h2><p class="description">每格条形图表示该格保留的 MoS₂ 面积内，三种层数各占多少。整体组成与局部空间分布分别保存。</p>
+          <form id="spatialForm"><label for="maskPath">保存好的层数掩膜路径</label><input id="maskPath" type="text" autocomplete="off" spellcheck="false" placeholder="例如 …/results/mask.png" required><p class="field-help">使用原生标签掩膜：0 背景、1 双层、2 单层、3 更厚层；不要使用彩色预览图。</p><label for="sampleName">样品名称</label><input id="sampleName" type="text" maxlength="160" autocomplete="off" placeholder="例如 5 mg S">
+          <details id="supportDetails"><summary>有效扫描区域与排除区域</summary><label for="validPath">有效扫描区域掩膜（如有）</label><input id="validPath" type="text" autocomplete="off" spellcheck="false" placeholder="有效区域 mask 的完整路径"><label class="checkbox-label"><input id="wholeCanvas" type="checkbox"><span>没有有效区域文件，且确认整个层数图画布均有真实扫描覆盖。</span></label><label for="exclusionPath">需排除的区域掩膜（可选）</label><input id="exclusionPath" type="text" autocomplete="off" spellcheck="false" placeholder="例如 NaCl 相关区域的排除 mask"><p class="field-help">有效区文件与“整幅有效”的确认至少提供一项。坐标单位与排除规则以实际结果记录为准。</p></details>
+          <div class="primary-row"><button id="startSpatial" class="button primary" type="submit" disabled>生成 Figure 4 空间分布图 <span aria-hidden="true">→</span></button></div></form>
+          <div id="spatialProgress" class="progress-note" role="status" hidden></div><div id="spatialArtifacts" class="artifact-links"></div>
+        </section>
+
+        <div class="step-navigation"><button id="previousStep" type="button">← 上一步</button><p>切换步骤只改变当前页面，不会标记实验已完成。</p><button id="nextStep" type="button">下一步 →</button></div>
+      </div>
+
+      <aside class="sidebar"><section class="context-card"><div class="aside-heading"><h2>本批次上下文</h2><button id="refresh" type="button">刷新</button></div><dl><dt>项目目录</dt><dd id="projectPath">等待连接</dd><dt>交接记录</dt><dd id="handoverStatus">尚未检查</dd><dt>运行状态</dt><dd id="activeStatus">尚未运行</dd></dl></section>
+        <section class="jobs-card"><div class="aside-heading"><h2>实际运行记录</h2><span id="jobCount">0</span></div><ol id="jobs" class="jobs"><li class="empty-job">启动的任务和实际结果会显示在这里。</li></ol><p class="aside-note">只有后台核验到对应输出文件，才会显示完成；需要处理的问题会保留在记录中。</p></section>
+        <section class="context-card memory-card"><div class="aside-heading"><h2>完整流程记录</h2><span id="memoryCount">等待连接</span></div><p id="memoryPath" class="memory-path">等待读取 Memory 目录。</p><a class="memory-link" href="/api/workflow/memory" target="_blank" rel="noopener noreferrer">打开完整流程记录 <span aria-hidden="true">↗</span></a><p class="aside-note">各步骤历史统一记录到 Memory。原始日志保留来源，同次运行共用的通信日志按同一来源关联。</p></section>
+      </aside>
+    </div>
+    <footer><span>MosaicAgent · 采集、分析与结果可追溯</span><nav aria-label="原有工作台入口"><a href="/review/?stage=scan">采集</a><a href="/review/?stage=images">图像与拼接</a><a href="/review/?stage=layers">层数分析</a><a href="/review/?stage=spectra">光谱与位置</a></nav></footer>
+  </main>
+</body>
+</html>
