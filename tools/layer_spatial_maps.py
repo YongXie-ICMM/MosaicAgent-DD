@@ -13,6 +13,8 @@ def main(argv=None):
     parser.add_argument("--mask", required=True, type=Path, help="Original colour mask PNG or native MosaicAgent .npy mask")
     parser.add_argument("--valid-mask", type=Path, help="Native valid scan support .npy; omitted means the complete canvas is supported")
     parser.add_argument("--exclusions", type=Path, help="Exclusion .npy or rectangle JSON with source image dimensions")
+    parser.add_argument("--mosaic", type=Path, help="Matching optical mosaic for optical / segmentation / composition Figure 4")
+    parser.add_argument("--auto-central-exclusion", action="store_true", help="Apply the recorded central-aggregate rectangle policy; stop for review if it is absent or ambiguous")
     parser.add_argument("--sample", default="sample", help="Sample label used in figures and filenames")
     parser.add_argument("--output", required=True, type=Path, help="New output directory; previous results are never overwritten")
     parser.add_argument("--heatmap-grid", nargs=2, type=int, metavar=("COLS","ROWS"), default=(8,15))
@@ -20,7 +22,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         result = export_spatial_maps(args.mask,args.valid_mask,args.exclusions,args.output,args.sample,
-                                     args.heatmap_grid,args.combined_grid)
+                                     args.heatmap_grid,args.combined_grid,
+                                     mosaic_path=args.mosaic,auto_central_exclusion=args.auto_central_exclusion)
     except (OSError,ValueError,KeyError) as exc:
         parser.error(str(exc))
     print("Saved spatial layer maps / 已保存空间层数统计："+result["manifest"])

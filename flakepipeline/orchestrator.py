@@ -165,7 +165,7 @@ class Orchestrator:
             key = {"mask": _hash_file(st["mask"]),
                    "valid_mask": _hash_file(st["valid_mask"]),
                    "excl": _hash_file(st["exclusion_mask"]) if st.get("exclusion_mask") else ""}
-            spatial = stages.spatial_maps_cache_key(ctx)
+            spatial = stages.spatial_maps_cache_key({**ctx, "mosaic": st.get("mosaic")})
             if spatial is not None:
                 key["spatial_maps"] = spatial
             return key
@@ -198,7 +198,7 @@ class Orchestrator:
                                               f"{ctx['sample']}_exclusions.json")]
                                          + ([r["exclusion_mask"]] if r.get("exclusion_mask") else []))),
             dict(name="stats", key=k_stats,
-                 run=lambda ctx, st: stages.stage_stats(ctx, st["mask"], st["valid_mask"],
+                 run=lambda ctx, st: stages.stage_stats({**ctx, "mosaic": st.get("mosaic")}, st["mask"], st["valid_mask"],
                                                         st.get("exclusion_mask")),
                  outputs=stats_outputs),
         ]
