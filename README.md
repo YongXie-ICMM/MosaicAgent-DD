@@ -20,6 +20,8 @@ A reproducible software workflow for large-area optical microscopy of CVD-grown 
 
 The guided browser interface opens this seven-stage workflow. The earlier review tools remain available at `/review/`. See the [English workflow guide](docs/DD_WORKFLOW.md).
 
+The interface defaults to **English**, with a persistent **中文** option. After layer inference, step 07 can propose exclusion boxes on matching optical/segmentation previews. Users edit and explicitly confirm the boxes before final spatial statistics; optional Kimi ROI advice never approves or applies them. The resulting Figure 4 aligns the optical image, segmented map and local composition. [Box review and reproducibility](docs/SPATIAL_REGION_REVIEW.md).
+
 ## Reproduce the analysis
 
 ### Environment
@@ -84,7 +86,7 @@ Kimi supervision is available in selected stitching, image-review and spectrosco
 
 ## Validation and scientific scope
 
-- **Software:**1,014 offline tests passed and 1 skipped under actual Python 3.9.18 using the pinned dependencies. Python compilation, JavaScript syntax and registration self-checks passed. CI checks both Python 3.9 and 3.12; its live result is visible in [GitHub Actions](https://github.com/YongXie-ICMM/MosaicAgent-DD/actions).
+- **Software:**1,092 offline tests passed and 1 skipped under actual Python 3.9.18 using the pinned dependencies, including spatial-box review, optional Kimi advice and three-panel export checks. Python compilation and JavaScript syntax checks passed. CI checks both Python 3.9 and 3.12; its live result is visible in [GitHub Actions](https://github.com/YongXie-ICMM/MosaicAgent-DD/actions).
 - **Packaging:** the 270-file local trial kit passed nested source, scanner and checkpoint hash checks. A synthetic background spatial job run from the extracted kit produced 16 verified artifacts and a Memory completion event. Synthetic checks are identified as such.
 - **Stitching:** recorded-grid protection corrected 16 misplaced rows in the 864-image low-texture case while retaining every image. The 1000-image colour/render replay retained all image IDs and reduced overlap log-RMS from 1.480% to 0.770%. These are geometry/consistency checks, not segmentation accuracy estimates.
 - **Acquisition:** the C1 scanner completed 9-image and 1000-image scans on 31 October 2026 in one application process. No motion fault occurred. This validates those normal runs and logging, not elimination of the earlier SDK `command_movr`−1 fault.

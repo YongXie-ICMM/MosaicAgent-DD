@@ -24,6 +24,8 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 APP = 'mosaic-analysis-workbench'
 MOSAIC_URL = 'https://github.com/YongXie-ICMM/MosaicAgent-DD'
 SCAN_URL = MOSAIC_URL
@@ -195,7 +197,59 @@ class Workbench:
                         'url': '/api/workflow/artifact?job=' + quote(job['id']) + '&name=' + quote(relative)})
         return state
 
+    def spatial_review_directory(self, review_id):
+        if not isinstance(review_id, str) or re.fullmatch(r'[0-9a-f]{32}', review_id) is None:
+            raise ValueError('Invalid spatial review identifier')
+        root = self.dd_workflow.directory / 'spatial_reviews'
+        directory = root / review_id
+        if directory.is_symlink() or not inside(directory, root) or not directory.is_dir():
+            raise ValueError('Spatial review is unavailable; prepare it again')
+        return directory
+
+    def spatial_review_artifact(self, review_id, name):
+        from spatial_review import load_review
+        directory = self.spatial_review_directory(review_id)
+        record = load_review(directory)
+        if name not in {'optical_preview.png', 'segmentation_preview.png'}:
+            raise ValueError('Unknown spatial review preview')
+        declared = next((p for p in record['previews'].values() if p['path'] == name), None)
+        path = directory / name
+        if (not declared or path.is_symlink() or not path.is_file()
+                or path.stat().st_size > 32 * 1024 * 1024):
+            raise ValueError('Spatial review preview is unavailable')
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != declared['sha256']:
+            raise ValueError('Spatial review preview changed; prepare it again')
+        return data
+
     def workflow_action(self, action, body):
+        if action == 'spatial-review':
+            from workflow_analysis import _mask_sources, _file
+            from spatial_review import prepare_review
+            fields = [body.get(key) or None for key in ('mask_path', 'valid_path', 'exclusion_path')]
+            if any(value is not None and (not isinstance(value, str) or len(value) > 4096) for value in fields):
+                raise ValueError('Invalid spatial source path')
+            _mask_sources(*fields, body.get('whole_canvas_supported') is True)
+            mosaic = _file(body.get('mosaic_path'))
+            automatic = body.get('auto_central_exclusion', True)
+            if type(automatic) is not bool:
+                raise ValueError('Automatic proposal setting must be a boolean')
+            result = prepare_review(*fields, mosaic, self.dd_workflow.directory / 'spatial_reviews', automatic=automatic)
+            identity = result['review_id']
+            result['preview_urls'] = {key: '/api/workflow/spatial-review-artifact?review=' + identity + '&name=' + quote(Path(value).name)
+                                      for key, value in result['preview_paths'].items()}
+            self.memory.record('spatial_regions', 'proposed_review_pending', review_id=identity,
+                               review_dir=result['review_dir'], rectangles=result['rectangles'],
+                               original_labels_changed=False)
+            return {'ok': True, **result}
+        if action == 'spatial-review-kimi':
+            from spatial_review_kimi import advise_review
+            directory = self.spatial_review_directory(body.get('review_id'))
+            result = advise_review(directory, body.get('rectangles'))
+            self.memory.record('spatial_regions', 'kimi_advisory', review_id=body['review_id'],
+                               advice_status=result.get('status'), auto_applied=False,
+                               record_path=result.get('advisory_path'))
+            return {'ok': True, **result}
         if action == 'scanner':
             scanner = self.workflow_state()['scanner']
             if not scanner.get('dd_communication_ready'):
@@ -238,7 +292,35 @@ class Workbench:
                 if not isinstance(sample, str):
                     raise ValueError('样品名称须为文本。')
                 whole = body.get('whole_canvas_supported') is True
-                plan = prepare_spatial(*fields, sample, output, REPO, whole_canvas_supported=whole)
+                mosaic = body.get('mosaic_path') or None
+                automatic = body.get('auto_central_exclusion', False)
+                if ((mosaic is not None and (not isinstance(mosaic, str) or len(mosaic) > 4096))
+                        or type(automatic) is not bool):
+                    raise ValueError('Invalid optical mosaic path or central exclusion setting')
+                review_id = body.get('review_id')
+                if mosaic is not None or automatic or review_id is not None:
+                    if body.get('review_confirmed') is not True:
+                        raise ValueError('Review and confirm the exclusion boxes before generating Figure 4')
+                    from spatial_review import load_review, confirm_review
+                    directory = self.spatial_review_directory(review_id)
+                    reviewed = load_review(directory)
+                    for key, value in zip(('mask', 'valid_support', 'exclusions', 'mosaic'), [*fields, mosaic]):
+                        original = reviewed['sources'].get(key)
+                        if ((original is None) != (value is None)
+                                or (original is not None and Path(value).expanduser().resolve() != Path(original['path']).resolve())):
+                            raise ValueError('Spatial inputs differ from the reviewed images; prepare a new review')
+                    confirmed = confirm_review(directory, body.get('rectangles'),
+                                               directory / 'confirmations' / secrets.token_hex(16))
+                    fields[2] = confirmed['exclusion_path']
+                    automatic = False  # User-edited boxes are final; never run the proposal again.
+                    self.memory.record('spatial_regions', 'human_confirmed', review_id=review_id,
+                                       confirmation=confirmed['confirmation_path'], rectangles=confirmed['rectangles'],
+                                       original_labels_changed=False)
+                plan = prepare_spatial(*fields, sample, output, REPO, whole_canvas_supported=whole,
+                                       mosaic_path=mosaic, auto_central_exclusion=automatic)
+                if review_id is not None:
+                    plan['source_binding']['review_sources'] = reviewed['sources']
+                    plan['source_binding']['review_id'] = review_id
             ticket = self.dd_workflow.register_plan(plan)
             identity = ticket['id'] if isinstance(ticket, dict) else ticket
             return {'ok': True, 'job': self.dd_workflow.start(identity)}
@@ -807,6 +889,12 @@ class Handler(BaseHTTPRequestHandler):
                 data, mime, name = self.server.workbench.workflow_artifact(
                     query.get('job', [''])[0], query.get('name', [''])[0])
                 return self.send(data, mime=mime, attachment=name if mime == 'image/svg+xml' else None, artifact=True)
+            if path == '/api/workflow/spatial-review-artifact':
+                from urllib.parse import parse_qs
+                query = parse_qs(urlsplit(self.path).query)
+                data = self.server.workbench.spatial_review_artifact(
+                    query.get('review', [''])[0], query.get('name', [''])[0])
+                return self.send(data, mime='image/png', artifact=True)
             if path.startswith('/api/artifact/'):
                 data, mime, name = self.server.workbench.artifact(path.rsplit('/', 1)[-1])
                 attach = name if mime not in {'text/html', 'application/pdf'} and not mime.startswith('image/') else None
@@ -818,6 +906,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(target.read_bytes(), mime=(mimetypes.guess_type(str(target))[0] or 'text/plain') + '; charset=utf-8')
             names = {'/': 'workflow.html', '/workflow/': 'workflow.html',
                      '/workflow/workflow.js': 'workflow.js', '/workflow/workflow.css': 'workflow.css',
+                     '/workflow/workflow_i18n.js': 'workflow_i18n.js',
                      '/review/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
             if path in names:
                 target = HERE / 'static' / names[path]
@@ -870,7 +959,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(result)
         except WorkbenchError as exc:
             self.fail(words('未完成：' + exc.message['zh'], 'Not completed: ' + exc.message['en']))
-        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        except (ValueError, OSError, RuntimeError, ImportError, subprocess.SubprocessError) as exc:
             self.fail(words('未完成：' + str(exc), 'Not completed: ' + str(exc)))
 
     def fail(self, message):

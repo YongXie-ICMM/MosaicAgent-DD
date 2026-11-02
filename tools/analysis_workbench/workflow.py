@@ -264,7 +264,8 @@ class DDWorkflow:
                     or _path(args["--config"]) != output / "control/layers_config.json"):
                 raise ValueError("Layer plan must use the fixed reviewed pipeline and generated config")
         elif kind == "spatial":
-            args = _arguments(argv, {"--mask", "--valid-mask", "--exclusions", "--sample", "--output"},
+            args = _arguments(argv, {"--mask", "--valid-mask", "--exclusions", "--sample", "--output", "--mosaic"},
+                              ("--auto-central-exclusion",),
                               multiple={"--heatmap-grid": 2, "--combined-grid": 2})
             if (_path(argv[1]) != self.repo / "tools/layer_spatial_maps.py" or _path(args.get("--output")) != output
                     or not {"--mask", "--sample", "--heatmap-grid", "--combined-grid"} <= args.keys()

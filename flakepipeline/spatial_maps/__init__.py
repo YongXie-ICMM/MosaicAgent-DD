@@ -18,7 +18,7 @@ import PIL
 
 from .stats import LAYERS, RGB, analyze, load_labels, require, sha
 
-SPATIAL_MAPS_VERSION = "1.0.0"
+SPATIAL_MAPS_VERSION = "1.1.0"
 
 
 def implementation_fingerprint():
@@ -57,6 +57,15 @@ def _load_sources(mask_path, valid_path, exclusion_path):
             require(labels.shape == (record["image_height"], record["image_width"]),
                     "Mask dimensions disagree with exclusion metadata")
             rectangles = record["excluded_rectangles"]
+            base = record.get("base_exclusion_mask")
+            if base is not None:
+                require(isinstance(base, dict) and isinstance(base.get("path"), str)
+                        and isinstance(base.get("sha256"), str), "Invalid base exclusion binding")
+                base_path = Path(base["path"]).resolve()
+                require(base_path.suffix.lower() == ".npy" and sha(base_path) == base["sha256"],
+                        "Base exclusion source changed; review again")
+                excluded = np.load(base_path, allow_pickle=False)
+                sources["base_exclusions"] = {"path": str(base_path), "sha256": base["sha256"]}
         else:
             excluded = np.load(path, allow_pickle=False)
     return labels, valid, excluded, rectangles, sources, encoding
@@ -88,7 +97,8 @@ def _paired_comparison(data, out):
 
 
 def export_spatial_maps(mask_path, valid_path, exclusion_path, output_dir, sample,
-                        heatmap_grid=(8, 15), combined_grid=(6, 11)):
+                        heatmap_grid=(8, 15), combined_grid=(6, 11),
+                        mosaic_path=None, auto_central_exclusion=False):
     """Export both versions to a new directory, publishing the manifest last.
 
     RGB/P-mode PNG masks are decoded by exact colours. NPY input has the
@@ -105,7 +115,32 @@ def export_spatial_maps(mask_path, valid_path, exclusion_path, output_dir, sampl
     for grid in (heatmap_grid, combined_grid):
         require(isinstance(grid, (tuple, list)) and len(grid) == 2,
                 "Grid must be [columns, rows]")
+    require(type(auto_central_exclusion) is bool, "Automatic central exclusion must be a boolean")
+    require(not auto_central_exclusion or mosaic_path is not None,
+            "Automatic central exclusion needs the matching optical mosaic for visual review")
     labels, valid, excluded, rectangles, sources, encoding = _load_sources(mask_path, valid_path, exclusion_path)
+    automatic = None
+    before = None
+    before_regions = None
+    review_receipt = None
+    if exclusion_path is not None:
+        _, _, _, before_regions = analyze(labels, [], 1, 1, valid_mask=valid)
+        if Path(exclusion_path).suffix.lower() == '.json':
+            review_receipt = json.loads(Path(exclusion_path).read_text(encoding='utf-8-sig')).get('review')
+    if mosaic_path is not None:
+        from PIL import Image
+        mosaic_path = Path(mosaic_path).resolve()
+        sources["mosaic"] = {"path": str(mosaic_path), "sha256": sha(mosaic_path)}
+        with Image.open(mosaic_path) as image:
+            require(image.size == (labels.shape[1], labels.shape[0]),
+                    "Optical mosaic dimensions differ from the native segmentation")
+    if auto_central_exclusion:
+        from .figure4 import automatic_central_exclusion
+        automatic = automatic_central_exclusion(labels, valid)
+        _, _, _, before = analyze(labels, rectangles, 1, 1, valid_mask=valid, exclusion_mask=excluded)
+        if before_regions is None:
+            _, _, _, before_regions = analyze(labels, [], 1, 1, valid_mask=valid)
+        rectangles = [*rectangles, *automatic["rectangles"]]
     results = []
     # Count and validate both grids before writing any plot, even in batch mode.
     for columns, rows in (heatmap_grid, combined_grid):
@@ -113,7 +148,10 @@ def export_spatial_maps(mask_path, valid_path, exclusion_path, output_dir, sampl
                                       valid_mask=valid, exclusion_mask=excluded)
         results.append(dict(panel=sample, sulfur_mg=None, width=labels.shape[1], height=labels.shape[0],
                             rectangles=rectangles, global_counts=whole, **{"global": whole},
-                            xedges=xs, yedges=ys, table=table))
+                            xedges=xs, yedges=ys, table=table,
+                            exclusion_review_status=("automatic_proposal_unconfirmed" if automatic is not None
+                                                     else "human_confirmed" if isinstance(review_receipt, dict) and review_receipt.get("human_confirmed") is True
+                                                     else "review_not_recorded")))
     require(results[0]["global"] == results[1]["global"], "Different grids produced different whole-map totals")
     # Preview sampling has no effect on the full-resolution numerical counts.
     step = max(1, int(np.ceil(max(labels.shape[1]/850, labels.shape[0]/1500))))
@@ -138,6 +176,26 @@ def export_spatial_maps(mask_path, valid_path, exclusion_path, output_dir, sampl
             for style in ("pies", "stacks"):
                 combined.draw(data, staging, style)
             _paired_comparison(data, staging)
+            if mosaic_path is not None:
+                from .figure4 import draw_figure4
+                draw_figure4(results[1], labels, valid, excluded, mosaic_path, staging)
+        if automatic is not None:
+            effective = np.asarray(excluded, dtype=bool).copy()
+            for rect in rectangles:
+                effective[rect["y1"]:rect["y2"], rect["x1"]:rect["x2"]] = True
+            effective &= np.asarray(valid, dtype=bool)
+            effective_name = f"{sample}_effective_exclusion.npy"
+            np.save(staging / effective_name, effective)
+            automatic["effective_exclusion_mask"] = effective_name
+            exclusion_record = {
+                "schema_version": 1, "image_height": int(labels.shape[0]),
+                "image_width": int(labels.shape[1]), "excluded_rectangles": rectangles,
+                "automatic_central_exclusion": automatic, "sources": sources,
+                "before_global": before, "after_global": results[0]["global"],
+                "note": "Rectangular spatial-analysis exclusion; original predictions are unchanged",
+            }
+            (staging / "automatic_exclusions.json").write_text(
+                json.dumps(exclusion_record, indent=2, allow_nan=False) + "\n", encoding="utf-8")
         for name, result in zip(("heatmaps", "combined"), results):
             numeric = {}
             for field in result["table"][0]:
@@ -162,6 +220,15 @@ def export_spatial_maps(mask_path, valid_path, exclusion_path, output_dir, sampl
             "edges":{name:{"x_px":r["xedges"].tolist(),"y_px":r["yedges"].tolist()}
                      for name,r in zip(("heatmaps","combined"),results)},
             "rectangles":rectangles,"global":results[0]["global"],
+            "figure4": {"enabled": mosaic_path is not None,
+                        "panels": ["optical mosaic", "segmented layer map", "local layer composition"] if mosaic_path is not None else [],
+                        "input_image_colour_changed": False},
+            "automatic_central_exclusion": automatic,
+            "before_automatic_exclusion_global": before,
+            "before_region_exclusion_global": before_regions,
+            "human_exclusion_review": review_receipt,
+            "exclusion_review_status": results[0]["exclusion_review_status"],
+            "human_exclusion_confirmation_required": automatic is not None,
             "denominators":{"composition":"retained 1L + 2L + TL pixels",
                             "coverage":"retained valid scan pixels, including substrate"},
             "coordinates":"Mask pixels; top-left origin; analysis tiles, not camera frames; no physical scale inferred",
@@ -174,6 +241,7 @@ def export_spatial_maps(mask_path, valid_path, exclusion_path, output_dir, sampl
         staging.rename(output_dir)
         return {"manifest":str(output_dir/"spatial_manifest.json"),
                 "outputs":[str(output_dir/item["path"]) for item in manifest["outputs"]]+[str(output_dir/"spatial_manifest.json")],
+                "effective_exclusion_mask": str(output_dir / automatic["effective_exclusion_mask"]) if automatic is not None else None,
                 "summary":{"global":manifest["global"],"grids":manifest["grids"]}}
     finally:
         if staging.exists():

@@ -138,6 +138,28 @@ class WorkflowAnalysisTests(unittest.TestCase):
         self.assertNotIn('--valid-mask', plan['argv'])
         self.assertTrue(plan['source_binding']['whole_canvas_supported'])
 
+    def test_figure4_plan_binds_optical_source_and_automatic_policy(self):
+        photo = self.root / 'optical.png'
+        Image.new('RGB', (16, 30), (230, 187, 189)).save(photo)
+        plan = self.spatial(mosaic_path=photo, auto_central_exclusion=True)
+        self.assertIn('--mosaic', plan['argv'])
+        self.assertIn('--auto-central-exclusion', plan['argv'])
+        self.assertEqual(plan['source_binding']['sources']['mosaic']['sha256'], digest(photo))
+        self.assertTrue(plan['expected']['figure4'])
+        self.assertTrue(plan['expected']['auto_central_exclusion'])
+        self.assertFalse(Path(plan['output_dir']).exists())
+        photo.write_bytes(b'changed optical source')
+        with self.assertRaisesRegex(W.AnalysisPlanError, 'Input changed'):
+            W._verify_sources(plan)
+
+    def test_figure4_rejects_missing_or_mismatched_photo_and_nonboolean_policy(self):
+        with self.assertRaisesRegex(W.AnalysisPlanError, 'matching optical'):
+            self.spatial(auto_central_exclusion=True)
+        with self.assertRaisesRegex(W.AnalysisPlanError, 'dimensions differ'):
+            self.spatial(mosaic_path=self.mosaic)
+        with self.assertRaisesRegex(W.AnalysisPlanError, 'boolean'):
+            self.spatial(auto_central_exclusion='true')
+
     def test_native_unknown_class_or_object_and_mismatched_support_rejected(self):
         np.save(self.mask, np.full((30, 16), 4, dtype=np.uint8))
         with self.assertRaisesRegex(W.AnalysisPlanError, '未知像素值'):

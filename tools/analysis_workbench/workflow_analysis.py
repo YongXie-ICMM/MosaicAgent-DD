@@ -261,6 +261,17 @@ def _mask_sources(mask_path, valid_path, exclusion_path, whole_canvas_supported)
                          '排除区必须为整数像素坐标 / Exclusions require integer pixel coordinates')
                 _require(0 <= rect['x1'] < rect['x2'] <= shape[1] and 0 <= rect['y1'] < rect['y2'] <= shape[0],
                          '排除区超出mask / Exclusion rectangle outside mask')
+            base = record.get('base_exclusion_mask')
+            if base is not None:
+                _require(isinstance(base, dict), 'Invalid base exclusion binding')
+                base_path = _file(base.get('path'))
+                _require(base_path.suffix.lower() == '.npy' and _sha(base_path) == base.get('sha256'),
+                         'Base exclusion source changed; review again')
+                base_array = _load_npy(base_path, 'Base exclusion mask')
+                _require(base_array.shape == shape and base_array.dtype.kind in 'biuf',
+                         'Base exclusion dimensions or dtype differ')
+                _check_values(base_array, [0, 1], 'Base exclusion mask')
+                sources['base_exclusions'] = base_path
         else:
             _require(exclusion.suffix.lower() == '.npy', '排除区应为NPY或矩形JSON / Exclusions must be NPY or rectangle JSON')
             array = _load_npy(exclusion, 'Exclusion mask')
@@ -271,7 +282,7 @@ def _mask_sources(mask_path, valid_path, exclusion_path, whole_canvas_supported)
 
 
 def prepare_spatial(mask_path, valid_path, exclusion_path, sample, output_dir, repo,
-                    whole_canvas_supported=False):
+                    whole_canvas_supported=False, mosaic_path=None, auto_central_exclusion=False):
     """Plan both saved-mask figure versions, with local MoS2 normalization unchanged."""
     repo = Path(repo).resolve()
     # Import only existing mask validation; never segmentation or torch.
@@ -279,12 +290,26 @@ def prepare_spatial(mask_path, valid_path, exclusion_path, sample, output_dir, r
         sys.path.insert(0, str(repo))
     sample = _safe_sample(sample)
     sources, shape, encoding = _mask_sources(mask_path, valid_path, exclusion_path, whole_canvas_supported)
+    _require(type(auto_central_exclusion) is bool, 'Automatic central exclusion must be a boolean')
+    _require(not auto_central_exclusion or mosaic_path is not None,
+             'Select the matching optical mosaic to review the automatic central exclusion / 自动排除需要对应原图')
+    if mosaic_path is not None:
+        mosaic = _file(mosaic_path)
+        from PIL import Image
+        with Image.open(mosaic) as image:
+            _require(image.size == (shape[1], shape[0]),
+                     'Optical mosaic dimensions differ from the native segmentation / 原图和分割图尺寸不一致')
+        sources['mosaic'] = mosaic
     output = _new_output(output_dir)
     script = _file(repo / 'tools/layer_spatial_maps.py')
     argv = [sys.executable, str(script), '--mask', str(sources['mask'])]
     for key, flag in [('valid_support', '--valid-mask'), ('exclusions', '--exclusions')]:
         if key in sources:
             argv.extend([flag, str(sources[key])])
+    if 'mosaic' in sources:
+        argv.extend(['--mosaic', str(sources['mosaic'])])
+    if auto_central_exclusion:
+        argv.append('--auto-central-exclusion')
     argv.extend(['--sample', sample, '--output', str(output), '--heatmap-grid', '8', '15', '--combined-grid', '6', '11'])
     binding = {key: {'path': str(path), 'sha256': _sha(path)} for key, path in sources.items()}
     return {'kind': 'spatial', 'argv': argv, 'output_dir': str(output),
@@ -294,7 +319,8 @@ def prepare_spatial(mask_path, valid_path, exclusion_path, sample, output_dir, r
                                'coordinates': 'Mask pixels; no physical millimetre scale inferred',
                                'composition_denominator': 'Retained classified MoS2 area inside each analysis cell'},
             'expected': {'manifest_path': str(output / 'spatial_manifest.json'), 'kind': 'layer_spatial_maps', 'sample': sample,
-                         'grids': {'heatmaps': [8, 15], 'combined': [6, 11]}}}
+                         'grids': {'heatmaps': [8, 15], 'combined': [6, 11]},
+                         'figure4': mosaic_path is not None, 'auto_central_exclusion': auto_central_exclusion}}
 
 
 def _verify_sources(plan):
@@ -327,6 +353,14 @@ def validate_plan_result(plan):
                  and record.get('sample') == expected['sample'] and record.get('grids') == expected['grids'],
                  '空间统计清单不对应本次请求 / Spatial manifest does not match this job')
         _require(record.get('sources') == plan['source_binding']['sources'], '空间统计来源绑定不一致 / Spatial input source bindings differ')
+        if expected.get('figure4'):
+            _require(record.get('figure4', {}).get('enabled') is True,
+                     'Missing the requested optical / segmentation / composition Figure 4')
+        if expected.get('auto_central_exclusion'):
+            automatic = record.get('automatic_central_exclusion')
+            _require(isinstance(automatic, dict) and bool(automatic.get('rectangles'))
+                     and bool(record.get('before_automatic_exclusion_global')),
+                     'Missing the automatic exclusion decision and before/after statistics')
         outputs = record.get('outputs')
         _require(isinstance(outputs, list) and 1 <= len(outputs) <= 128, '空间统计产物清单无效 / Invalid spatial output inventory')
         artifacts = [str(path)]
@@ -343,6 +377,10 @@ def validate_plan_result(plan):
         _require(any(Path(p).suffix.lower() == '.svg' for p in artifacts)
                  and any(Path(p).suffix.lower() == '.csv' for p in artifacts),
                  '缺少空间分布SVG或统计CSV / Missing spatial SVG or statistics CSV')
+        if expected.get('figure4'):
+            _require(any(Path(p).name.endswith('_Figure4.svg') for p in artifacts)
+                     and any(Path(p).name.endswith('_Figure4.png') for p in artifacts),
+                     'Missing the verified Figure 4 PNG or SVG')
         return {'status': 'validated', 'output_path': str(path), 'artifacts': artifacts,
                 'review_required': True, 'coordinates': 'Mask pixels; no physical scale inferred'}
     _require(plan['kind'] == 'layers', '未知分析步骤 / Unknown analysis kind')
@@ -392,7 +430,7 @@ def validate_plan_result(plan):
                 quality_flags.append({'sample': name, 'stage': stage_name,
                                       'reason': str(stage.get('escalate_reason', 'Needs review'))[:1000]})
         _require(stages['stats'].get('ok') is True, '面积统计未成功完成 / Area statistics did not complete successfully')
-        samples.append({'sample': name, 'manifest': str(manifest_path), **files,
+        samples.append({'sample': name, 'manifest': str(manifest_path), 'mosaic': str(stitched_copy), **files,
                         'exclusion_mask': exclusion})
         artifacts.extend([str(manifest_path), *files.values()])
         if exclusion:

@@ -2,7 +2,11 @@
 
 [English documentation](README.md)
 
-本版对应 Digital Discovery 的扫描、拼接、层数识别和光谱记录流程。第 03 项只查看层数预测与面积统计。
+本版对应 Digital Discovery 的扫描、拼接、层数识别和光谱记录流程。首页 `/` 是七步统一流程；下方四项旧复核工具保留在 `/review/`，其中旧第 03 项只查看层数预测与面积统计。
+
+**2026-11-02 界面更新：**首次打开默认英文，右上角 **English / 中文** 可切换；之前明确保存的中文选择会保留。七步流程、旧复核页面和拼接设置共用语言偏好。切换语言不会改变路径、复核状态或分析参数，原文件名与历史日志也不会被翻译或改写。
+
+第 07 步先生成排除框建议和原图/层数图预览，再由人复核。可以在任一预览拖动画框，选择已有框后编辑原始掩膜像素坐标，或删除、清空建议框。层数预览中的灰色像素属于已有受保护排除掩膜，删除方框不会恢复这些像素。勾选确认，再点击“确认区域并生成 Figure 4”，才会提交最终统计；零个框也必须明确确认。修改输入路径会使复核失效，改框会清除此前确认及 Kimi 意见。可选 Kimi 按钮仅在点击后发送所选区域预览，模型意见不能改框或代替人工确认。
 
 ## 启动与设置
 
@@ -11,7 +15,7 @@
 - 或从仓库根目录运行 `python3 tools/analysis_workbench/server.py`。
 - 浏览器打开 `http://127.0.0.1:8792/`。
 
-工作台本身需要 Python 3.10+，不需要额外 Python 包；拼接、推理和 Windows 采集分别有其依赖要求。
+工作台本身支持 Python 3.9+，不需要额外 Python 包；拼接、推理和 Windows 采集分别有其依赖要求。
 
 第一次点击“连接工具”，选择项目/数据文件夹。新配置不会自动读取私人项目。随包的采集代码在 `acquisition/Auto_Scan`；已有配置会继续使用原先选择的采集路径。“层数识别结果文件夹”可选，指向包含 `results/run_manifest.json` 的目录。
 
@@ -55,6 +59,11 @@ Mac/Linux 可查看结果，不能从该入口启动 Windows 实控。XY 模拟�
 ```bash
 python3 -m unittest discover -s tools/analysis_workbench -p 'test_*.py'
 node --check tools/analysis_workbench/static/app.js
+node --check tools/analysis_workbench/static/workflow.js
+node --check tools/analysis_workbench/static/workflow_i18n.js
+python3 -m unittest tools.analysis_workbench.test_workflow_i18n
 ```
 
 公开测试流程在 `.github/workflows/offline-tests.yml`。离线检查不代替仪器实测或物理判据验证。
+
+新增 DOM 合成测试检查英文默认、中文切换、浏览器存储不可用、原生像素框调整、人工确认、来源改变后复核失效，以及 Kimi 不自动改框；测试不会连接网络、模型或仪器。
