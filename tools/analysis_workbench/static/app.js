@@ -73,10 +73,10 @@
   const ids = ['scan', 'images', 'layers', 'spectra'];
   const buttons = { scan: 'launchScannerButton', images: 'imagesButton', layers: 'layersButton', spectra: 'spectraButton' };
   const $ = id => document.getElementById(id);
-  let language = 'zh';
+  let language = 'en';
   let activeTool = 'images';
   try {
-    language = localStorage.getItem('mosaic-workbench-language') === 'en' ? 'en' : 'zh';
+    language = localStorage.getItem('mosaic-workbench-language') === 'zh' ? 'zh' : 'en';
     const savedTool = localStorage.getItem('mosaic-workbench-tool');
     if (ids.includes(savedTool)) activeTool = savedTool;
   } catch (_) { /* Local storage may be disabled. */ }
@@ -134,9 +134,12 @@
     document.title = `MosaicAgent · ${t('workbench')}`;
     document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
     $('languageButton').textContent = language === 'zh' ? 'English' : '中文';
+    $('languageButton').setAttribute('aria-label', language === 'zh' ? '切换为英文' : 'Switch to Chinese');
     $('closeSetupButton').setAttribute('aria-label', t('close'));
     $('workflow').setAttribute('aria-label', language === 'zh' ? '分析步骤' : 'Analysis steps');
     $('caseSelect').setAttribute('aria-label', t('chooseCase'));
+    $('originalImage').alt = t('original');
+    $('resultImage').alt = t('result');
     render();
     renderNotice();
   }

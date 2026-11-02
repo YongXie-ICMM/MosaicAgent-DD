@@ -23,4 +23,5 @@ jobs:
       - run: python -m compileall -q .
       - run: node --check tools/analysis_workbench/static/app.js
       - run: node --check tools/analysis_workbench/static/workflow.js
+      - run: node --check tools/analysis_workbench/static/workflow_i18n.js
       - run: node --check tools/stitch_setup/static/app.js

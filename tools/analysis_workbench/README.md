@@ -6,6 +6,10 @@ A local interface for the Digital Discovery workflow:
 
 **31October2026 local candidate:** `/` is now the [guided DD workflow](../../docs/DD_WORKFLOW_zh.md), with seven arrow steps and backend-prepared background jobs for stitching, teacher-configured layer inference and saved-mask spatial export. It records every step under project `Memory/`; hardware acquisition remains in the native window. The four tools below remain available as the historical review interface at `/review/`. The prior read-only descriptions refer to those review tools, not the new explicit Run buttons. No package/release has been built for this candidate.
 
+**2 November 2026 interface update:** The guided workflow opens in English by default, with a visible **English / 中文** selector. An explicitly saved Chinese preference is retained. The guided page, historical review and stitching setup share the same local language preference. Switching language changes interface copy and bilingual messages, while preserving entered paths, review state and processing parameters. Original filenames, saved logs and scientific evidence are not translated or rewritten.
+
+Step 07 now prepares exclusion-region previews before any final spatial job. Compare the original mosaic and layer mask; draw boxes on either preview, select a box to edit its native-pixel coordinates, or delete/clear suggestions. Grey pixels in the mask preview are existing protected bitmap exclusions. They cannot be restored by deleting editable boxes. Check the confirmation box and press **Confirm regions & generate Figure 4** to submit the final statistics. Any input-path change invalidates the preview; editing boxes clears confirmation and previous Kimi advice. An empty box list requires the same explicit confirmation and retains all otherwise valid regions. Optional Kimi review sends selected-region previews only when its button is pressed; advice cannot alter boxes or confirm a job.
+
 1. **Scan acquisition** opens the [AmScope acquisition tool](../../acquisition/README.md) on the Windows instrument computer.
 2. **Images and stitching** reviews saved images and provenance; the stitching setup page checks raw image dimensions, the scan grid and acquisition records before preparing parameters.
 3. **Layer-number analysis** compares original images with saved U-Net semantic layer predictions and provides the associated area-statistics records.
@@ -17,7 +21,7 @@ The layer entry also discovers saved `spatial_manifest.json` exports below the c
 
 ## Start
 
-The workbench itself requires Python 3.10+ and the standard library. Stitching and inference retain the dependencies in the repository requirements; the scanner has its own Windows/vendor setup described in the acquisition guide.
+The workbench itself supports Python 3.9+ and the standard library. Stitching and inference retain the dependencies in the repository requirements; the scanner has its own Windows/vendor setup described in the acquisition guide.
 
 - Windows: double-click `start_workbench.bat`.
 - macOS: double-click `start_workbench.command`.
@@ -67,6 +71,11 @@ On macOS/Linux, acquisition launch is unavailable; review remains usable. The sc
 ```bash
 python3 -m unittest discover -s tools/analysis_workbench -p 'test_*.py'
 node --check tools/analysis_workbench/static/app.js
+node --check tools/analysis_workbench/static/workflow.js
+node --check tools/analysis_workbench/static/workflow_i18n.js
+python3 -m unittest tools.analysis_workbench.test_workflow_i18n
 ```
 
 The tests cover mocked scanner launching, process/lock handling, package integrity, generated schema-compatible history records, original/result pairing, artifact hashes and path bounds, settings, and read-only layer review. Synthetic test events are constructed in temporary directories; no private experimental log is required. The public test workflow is `.github/workflows/offline-tests.yml`. Test coverage does not claim hardware or physical validation.
+
+The Node-based DOM fixture also checks English/Chinese switching, unavailable browser storage, native-coordinate box editing, explicit human confirmation, source-change invalidation and advisory-only Kimi responses. It performs no network, model or instrument calls.
