@@ -3,6 +3,7 @@ paths out of ctx, writes its products to disk, and returns a manifest."""
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timezone
 from uuid import uuid4
 import os
@@ -961,6 +962,16 @@ def spatial_maps_settings(ctx):
                 or any(type(n) is not int or n <= 0 for n in value)):
             raise ValueError(f"spatial_maps.{key} must contain positive integer [columns, rows]")
         normalized[key] = list(value)
+    # These additions are opt-in. Omitting them keeps the historical settings
+    # and cache key byte-for-byte equivalent; no new batch inherits an exclusion.
+    for key in ("figure4", "auto_central_exclusion"):
+        value = settings.get(key, False)
+        if type(value) is not bool:
+            raise ValueError(f"spatial_maps.{key} must be a boolean")
+        if value:
+            normalized[key] = True
+    if normalized.get("auto_central_exclusion") and not normalized.get("figure4"):
+        raise ValueError("spatial_maps.auto_central_exclusion requires figure4=true and its bound mosaic")
     return normalized
 
 
@@ -978,8 +989,31 @@ def spatial_maps_cache_key(ctx):
     if not settings["enabled"]:
         return None
     module = _spatial_maps_module()
-    return {**settings, "implementation_version": module.SPATIAL_MAPS_VERSION,
-            "implementation_sha256": module.implementation_fingerprint()}
+    key = {**settings, "implementation_version": module.SPATIAL_MAPS_VERSION,
+           "implementation_sha256": module.implementation_fingerprint()}
+    if settings.get("figure4"):
+        mosaic = _spatial_mosaic(ctx)
+        digest = hashlib.sha256()
+        with mosaic.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        key["mosaic"] = {"path": str(mosaic), "sha256": digest.hexdigest()}
+    return key
+
+
+def _spatial_mosaic(ctx):
+    """Use the orchestrator's actual photo, or an explicit standalone input.
+
+    Never guess a neighbouring filename: identical mask dimensions do not bind
+    it to the correct colour-matched optical image.
+    """
+    value = ctx.get("mosaic") or ctx.get("mosaic_in")
+    if not isinstance(value, (str, Path)) or not str(value):
+        raise ValueError("Figure 4 needs the actual bound mosaic source")
+    path = Path(value).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError(f"Figure 4 mosaic source is missing: {path}")
+    return path
 
 
 def _export_spatial_maps(ctx, mask_path, valid_path, exclusion_path, outdir, settings):
@@ -988,10 +1022,14 @@ def _export_spatial_maps(ctx, mask_path, valid_path, exclusion_path, outdir, set
     name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "_" + uuid4().hex[:8]
     destination = outdir / "spatial_maps" / name
     destination.parent.mkdir(parents=True, exist_ok=True)
+    extra = {}
+    if settings.get("figure4"):
+        extra = {"mosaic_path": _spatial_mosaic(ctx),
+                 "auto_central_exclusion": settings.get("auto_central_exclusion", False)}
     exported = _spatial_maps_module().export_spatial_maps(
         mask_path, valid_path, exclusion_path, destination, ctx["sample"],
         heatmap_grid=tuple(settings["heatmap_grid"]),
-        combined_grid=tuple(settings["combined_grid"]))
+        combined_grid=tuple(settings["combined_grid"]), **extra)
     if (not isinstance(exported, dict) or not isinstance(exported.get("manifest"), str)
             or not isinstance(exported.get("outputs"), list) or not exported["outputs"]
             or any(not isinstance(p, str) for p in exported["outputs"])):
@@ -1011,6 +1049,40 @@ def stage_stats(ctx, mask_path, valid_path, exclusion_path=None):
     valid = np.load(valid_path)
     excl = np.load(exclusion_path) if exclusion_path and Path(exclusion_path).exists() \
         else np.zeros_like(valid)
+    spatial_export = None
+    if spatial_settings["enabled"] and spatial_settings.get("auto_central_exclusion"):
+        # The same union mask must drive ordinary counts, the counted preview,
+        # and Figure 4. Computing only the new figure with it would report two
+        # incompatible compositions for the same sample.
+        try:
+            spatial_export = _export_spatial_maps(
+                ctx, mask_path, valid_path, exclusion_path, outdir, spatial_settings)
+            effective_path = spatial_export.get("effective_exclusion_mask")
+            if not isinstance(effective_path, str):
+                raise ValueError("Automatic spatial export did not declare its effective exclusion mask")
+            effective_path = Path(effective_path).resolve()
+            export_root = Path(spatial_export["manifest"]).resolve().parent
+            declared = {Path(p).resolve() for p in spatial_export["outputs"]}
+            if (not effective_path.is_relative_to(export_root)
+                    or effective_path not in declared):
+                raise ValueError("Effective exclusion mask is outside the declared spatial artifacts")
+            effective = np.load(effective_path, allow_pickle=False)
+            if (effective.shape != mask.shape or effective.dtype.kind not in "biuf"
+                    or not np.all((effective == 0) | (effective == 1))):
+                raise ValueError("Effective exclusion mask must match native labels and contain only0/1")
+            effective = effective.astype(bool, copy=False)
+            if np.any(effective & ~valid) or np.any((valid & excl) & ~effective):
+                raise ValueError("Effective exclusion mask changed valid support or dropped an existing exclusion")
+            excl = effective
+        except Exception as exc:
+            failure = {"sample": ctx["sample"],
+                       "spatial_maps_error": f"{type(exc).__name__}: {exc}",
+                       "note": "Automatic exclusions were not verified; no revised area fractions were published"}
+            (outdir / f"{ctx['sample']}_stats.json").write_text(
+                json.dumps(failure, ensure_ascii=False, indent=2), encoding="utf-8")
+            return Result(ok=False, confidence=0.0, data=failure,
+                          evidence="Automatic exclusion export failed; revised statistics withheld",
+                          escalate=True, escalate_reason=failure["spatial_maps_error"])
     sel = valid & ~excl
 
     def ratios(s):
@@ -1050,6 +1122,9 @@ def stage_stats(ctx, mask_path, valid_path, exclusion_path=None):
         "excluded_regions": excluded_block,
         "non_scan_px": int((~valid).sum()),
     }
+    if spatial_settings.get("auto_central_exclusion"):
+        res["human_exclusion_confirmation_required"] = True
+        res["exclusion_review_status"] = "automatic_proposal_unconfirmed"
     if ctx.get("px_per_mm"):
         res["scanned_area_mm2"] = round(float(sel.sum() / ctx["px_per_mm"] ** 2), 3)
     # ---- self-check ----
@@ -1109,8 +1184,10 @@ def stage_stats(ctx, mask_path, valid_path, exclusion_path=None):
             json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
     if spatial_settings["enabled"]:
         try:
-            res["spatial_maps"] = _export_spatial_maps(
+            res["spatial_maps"] = spatial_export or _export_spatial_maps(
                 ctx, mask_path, valid_path, exclusion_path, outdir, spatial_settings)
+            if spatial_export:
+                res["effective_exclusion_mask"] = spatial_export["effective_exclusion_mask"]
         except Exception as exc:
             res["spatial_maps_error"] = f"{type(exc).__name__}: {exc}"
             (outdir / f"{ctx['sample']}_stats.json").write_text(
@@ -1120,12 +1197,14 @@ def stage_stats(ctx, mask_path, valid_path, exclusion_path=None):
                           escalate=True, escalate_reason="空间分布图导出失败: " + str(exc))
         (outdir / f"{ctx['sample']}_stats.json").write_text(
             json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
-    esc = bool(big)
-    return Result(ok=True, confidence=1.0 if not big else 0.6, data=res,
+    pending_review = spatial_settings.get("auto_central_exclusion", False)
+    esc = bool(big) or pending_review
+    return Result(ok=True, confidence=0.6 if esc else 1.0, data=res,
                   evidence=("剔除区域使占比变化 " +
                             ", ".join(f"{k} {v:+.2f} pp" for k, v in deltas.items())),
                   escalate=esc,
-                  escalate_reason=("以下类别对区域剔除高度敏感（阈值 "
+                  escalate_reason=(("Automatic exclusion-box proposal requires human confirmation. " if pending_review else "") +
+                                   ("以下类别对区域剔除高度敏感（阈值 "
                                    f"{alarm} pp）: " +
                                    ", ".join(f"{k} {v:+.2f} pp" for k, v in big.items())
-                                   if big else ""))
+                                   if big else "")))

@@ -3,6 +3,7 @@
 
   const strings = {
     zh: {
+      backWorkflow: '返回完整流程查看进度', jobNotCreated: '任务尚未创建', runNotStarted: '未启动，请查看检查记录',
       skip: '跳到配置', setupTitle: '拼接配置', back: '返回分析工作台', eyebrow: 'RAW TILES → STITCHING PROFILE',
       headline: '先确认图块，再准备拼接。', subtitle: '按顺序检查文件夹、确认采集几何，保存一份可以复核的配置与命令。',
       scope: '默认自动校正逐图色差，无需选择，原图保留。这里先保存配置，运行命令后开始校正和拼接。',
@@ -44,6 +45,7 @@
       bundle_dir: '配置包文件夹', profile_path: '几何配置 JSON', preflight_path: '检查记录', argv_path: '精确命令参数 JSON', layer_input_contract_path: '层数分析输入记录', instructions_path: '运行说明', shellLabel: '命令格式'
     },
     en: {
+      backWorkflow: 'Return to workflow progress', jobNotCreated: 'Job was not created', runNotStarted: 'Not started; check the record',
       skip: 'Skip to setup', setupTitle: 'STITCH SETUP', back: 'Back to workbench', eyebrow: 'RAW TILES → STITCHING PROFILE',
       headline: 'Check your tiles. Prepare your stitch.', subtitle: 'Inspect the folder, confirm the acquisition geometry, and save a profile and command for review.',
       scope: 'Per-tile colour correction is automatic and preserves raw images. This page prepares the command; running it starts correction and stitching.',
@@ -89,7 +91,8 @@
   const t = key => strings[language][key] || key;
   const vectorIds = ['dxV', 'dyV', 'dxH', 'dyH'];
   const confirmationIds = ['sameOptics', 'sameFieldOfView', 'sameStageSteps'];
-  let language = 'zh';
+  let language = 'en';
+  try { if (localStorage.getItem('mosaic-workbench-language') === 'zh') language = 'zh'; } catch (_) { /* Optional preference. */ }
   let csrfToken = null;
   let connection = 'connecting';
   let inspection = null;
@@ -219,6 +222,7 @@
     document.title = `MosaicAgent · ${t('setupTitle')}`;
     document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
     $('languageButton').textContent = language === 'zh' ? 'English' : '中文';
+    $('languageButton').setAttribute('aria-label', language === 'zh' ? '切换为英文' : 'Switch to Chinese');
     renderNotice();
     renderInspection();
     renderPrepared();
@@ -364,17 +368,21 @@
 
   ['dataDir', 'layoutPath'].forEach(id => $(id).addEventListener('input', invalidatePaths));
   $('prepareForm').addEventListener('input', () => { invalidatePrepared(); renderControls(); });
-  $('languageButton').addEventListener('click', () => { language = language === 'zh' ? 'en' : 'zh'; renderLanguage(); });
+  $('languageButton').addEventListener('click', () => {
+    language = language === 'zh' ? 'en' : 'zh';
+    try { localStorage.setItem('mosaic-workbench-language', language); } catch (_) { /* Optional preference. */ }
+    renderLanguage();
+  });
   $('runWorkflowButton').addEventListener('click', async () => {
     if (!prepared?.workflow_ticket || busy) return;
     busy = 'run';
     $('runWorkflowButton').disabled = true;
     try {
       const result = await post('/api/workflow/stitch', {ticket: prepared.workflow_ticket});
-      if (!result.job?.id) throw new Error('任务尚未创建 / Job was not created');
+      if (!result.job?.id) throw new Error(t('jobNotCreated'));
       location.href = '/workflow/?step=stitch';
     } catch (error) {
-      $('runWorkflowStatus').textContent = error.message || '未启动，请查看检查记录 / Not started; check the record';
+      $('runWorkflowStatus').textContent = error.message || t('runNotStarted');
     } finally {
       busy = null;
       renderPrepared();

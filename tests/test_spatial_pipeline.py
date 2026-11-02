@@ -233,3 +233,106 @@ def test_real_spatial_export_matches_native_stats_and_keeps_sources(data):
     orch, spec = stats_spec(ctx["work"])
     saved = record(orch, spec, ctx, state, result)
     assert orch._cached(saved, "stats", spec["key"](ctx, state)) is not None
+
+
+def test_figure4_binds_actual_stage_photo_and_invalidates_on_photo_change(data, exporter):
+    from PIL import Image
+    ctx, state = data
+    actual = ctx["work"] / "corrected.png"
+    alternate = ctx["work"] / "different_same_size.png"
+    Image.new("RGB", (4, 3), (230, 187, 189)).save(actual)
+    Image.new("RGB", (4, 3), (180, 150, 140)).save(alternate)
+    state["mosaic"] = str(actual)
+    ctx.update(mosaic_in=str(alternate), spatial_maps={"enabled": True, "figure4": True})
+    orch, spec = stats_spec(ctx["work"])
+    key = spec["key"](ctx, state)
+    assert key["spatial_maps"]["mosaic"]["path"] == str(actual.resolve())
+    result = spec["run"](ctx, state)
+    assert result.ok
+    assert exporter[1][0][5]["mosaic_path"] == actual.resolve()
+    assert exporter[1][0][5]["auto_central_exclusion"] is False
+    saved = record(orch, spec, ctx, state, result)
+    Image.new("RGB", (4, 3), (229, 187, 189)).save(actual)
+    assert orch._cached(saved, "stats", spec["key"](ctx, state)) is None
+    assert spec["key"](ctx, state)["spatial_maps"]["mosaic"]["sha256"] != key["spatial_maps"]["mosaic"]["sha256"]
+
+
+def test_legacy_spatial_key_does_not_require_or_bind_photo(data, exporter):
+    ctx, state = data
+    ctx["spatial_maps"] = {"enabled": True}
+    _, spec = stats_spec(ctx["work"])
+    key = spec["key"](ctx, state)
+    state["mosaic"] = "does-not-exist.png"
+    assert spec["key"](ctx, state) == key
+    assert set(key["spatial_maps"]) == {
+        "enabled", "heatmap_grid", "combined_grid", "implementation_version", "implementation_sha256"}
+
+
+@pytest.mark.parametrize("settings", [
+    {"enabled": True, "figure4": "yes"},
+    {"enabled": True, "auto_central_exclusion": 1},
+    {"enabled": True, "auto_central_exclusion": True},
+])
+def test_automatic_exclusion_requires_explicit_boolean_figure4_policy(data, exporter, settings):
+    ctx, state = data
+    ctx["spatial_maps"] = settings
+    with pytest.raises(ValueError, match="spatial_maps"):
+        stages.stage_stats(ctx, state["mask"], state["valid_mask"], state["exclusion_mask"])
+    assert not (ctx["work"] / "04_stats").exists()
+    assert not exporter[1]
+
+
+def test_figure4_missing_photo_fails_cache_key_before_any_export(data, exporter):
+    ctx, state = data
+    ctx["spatial_maps"] = {"enabled": True, "figure4": True}
+    _, spec = stats_spec(ctx["work"])
+    with pytest.raises(ValueError, match="bound mosaic"):
+        spec["key"](ctx, state)
+    assert not exporter[1]
+
+
+@pytest.mark.parametrize("failure", [None, "missing", "outside", "drops_prior", "outside_support"])
+def test_automatic_export_union_drives_all_pipeline_counts(data, exporter, failure):
+    from PIL import Image
+    ctx, state = data
+    photo = ctx["work"] / "corrected.png"
+    Image.new("RGB", (4, 3), (230, 187, 189)).save(photo)
+    state["mosaic"] = str(photo)
+    ctx["spatial_maps"] = {"enabled": True, "figure4": True, "auto_central_exclusion": True}
+    originals = {path: Path(path).read_bytes() for path in state.values()}
+    module = exporter[0]
+    original_export = module.export_spatial_maps
+
+    def with_union(*args, **kwargs):
+        result = original_export(*args, **kwargs)
+        if failure == "missing":
+            return result
+        effective = np.load(state["exclusion_mask"]).copy()
+        effective[1, 0] = True  # Native TL:3. Remove one additional retained pixel.
+        if failure == "drops_prior":
+            effective[1, 1] = False
+        if failure == "outside_support":
+            effective[0, 0] = True
+        path = (ctx["work"] / "outside.npy") if failure == "outside" else Path(result["manifest"]).parent / "effective.npy"
+        np.save(path, effective)
+        result["effective_exclusion_mask"] = str(path)
+        result["outputs"].append(str(path))
+        return result
+
+    module.export_spatial_maps = with_union
+    orch, spec = stats_spec(ctx["work"])
+    result = spec["run"](ctx, state)
+    assert len(exporter[1]) == 1
+    assert exporter[1][0][5]["auto_central_exclusion"] is True
+    if failure:
+        assert not result.ok and result.escalate
+        assert "ratios_pct" not in result.data
+        assert "spatial_maps_error" in result.data
+    else:
+        assert result.ok
+        assert result.data["counted_px"] == 8
+        assert result.data["ratios_pct"] == {"2L": 25.0, "1L": 50.0, "TL": 25.0}
+        assert result.data["excluded_regions"]["area_px"] == 2
+        assert result.data["delta_from_region_exclusion_pp"]["TL"] == -5.0
+        assert Path(result.data["effective_exclusion_mask"]).is_file()
+    assert all(Path(path).read_bytes() == before for path, before in originals.items())
