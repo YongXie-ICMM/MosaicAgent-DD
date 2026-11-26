@@ -213,6 +213,49 @@ def test_escalation_then_human_override(cfg, monkeypatch):
     assert chk["No escalations are awaiting a human"]["pass"]
 
 
+def test_cached_split_vote_stays_pending_until_human_decision(cfg, monkeypatch):
+    wire(monkeypatch, regions=make_regions(split=True))
+    cfg["no_repair"] = True  # Keep the same vote-setting cache key on the second run.
+    samples = cfg.pop("samples")
+    work = Path(cfg["work_root"])
+
+    def run_and_read_report():
+        O.Orchestrator(cfg).run(samples)
+        report = json.loads((work / "report.json").read_text(encoding="utf-8"))
+        review_check = next(check for check in report["consistency"]
+                            if check["check"] == "No escalations are awaiting a human")
+        return report["samples"][0], review_check
+
+    first, first_check = run_and_read_report()
+    assert [event["stage"] for event in first["escalations"]] == ["regions"]
+    assert first_check["pass"] is False
+    original_queue = RV.load_json(RV.queue_path(work), [])
+    assert len(original_queue) == 1 and original_queue[0]["status"] == "open"
+
+    cached, cached_check = run_and_read_report()
+    assert cached["actions"] == {stage: "cache" for stage in O.Orchestrator.STAGES}
+    assert cached["escalations"] == []
+    assert RV.load_json(RV.queue_path(work), []) == original_queue
+    assert cached_check["pass"] is False
+    assert first["pending_reviews"] == cached["pending_reviews"] == original_queue
+
+    RV.push_queue(work, {"sample": "other", "stage": "audit", "reason": "outside this run"})
+    monkeypatch.setattr(sys, "argv", ["review.py", "--work", str(work), "decide",
+                                     "--sample", "S1", "--rank", "1", "--keep",
+                                     "--by", "reviewer", "--note", "Faceted edges"])
+    RV.main()
+    decided, decided_check = run_and_read_report()
+    assert decided["actions"]["regions"] == "run"
+    assert decided["escalations"] == decided["pending_reviews"] == []
+    assert decided_check["pass"] is True
+    assert [c["pending_count"] for c in (first_check, cached_check, decided_check)] == [1, 1, 0]
+    assert decided["regions"][0]["decided_by"] == "reviewer"
+    history = RV.load_json(RV.queue_path(work), [])
+    assert [row for row in history if row["sample"] == "S1"] == [
+        {**original_queue[0], "status": "decided"}]
+    assert [row["status"] for row in history if row["sample"] == "other"] == ["open"]
+
+
 def test_override_of_unanimous_is_flagged():
     v = [{"rank": 1, "area_px": 100, "bbox": (0, 10, 0, 10), "category": "precursor_melt",
           "exclude": True, "_tally": {"precursor_melt": 3}}]

@@ -5,3 +5,7 @@ Use the [repository README](../README.md) for installation and the runnable stud
 This directory contains semantic U-Net inference, image audit, region exclusion review, area statistics and a separate measured-spectrum analysis path. It contains no instance annotation or touching-domain separation tool. `autoscan_agent.py` is a compatibility entry for offline focus metrics; physical acquisition is in `acquisition/Auto_Scan/`.
 
 For a headless numeric focus check: `python -m flakepipeline.focus_metrics --check-focus /path/to/tiles`.
+
+## Human review in the batch report
+
+In `report.json`, each sample's `escalations` lists items raised during this invocation. Its `pending_reviews` lists open queue entries matching the stage inputs used in the report, including cached stages. The batch check “No escalations are awaiting a human” gives their total in `pending_count`. Use `python flakepipeline/review.py --work /path/to/work_root list` to inspect the queue and the `decide` subcommand to record a region verdict. Rerun the batch to refresh the report.

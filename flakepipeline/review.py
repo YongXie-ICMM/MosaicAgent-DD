@@ -133,6 +133,25 @@ def verdicts_path(work_root: Path) -> Path:
     return Path(work_root) / "REVIEW" / VERDICTS
 
 
+def pending_reviews(queue: list, sample: str, stages: dict) -> list:
+    """Select open rows for the stage inputs actually used by this sample."""
+    pending = []
+    for entry in queue:
+        stage = entry["stage"]
+        if entry["sample"] != sample or stage not in stages or entry.get("status", "open") != "open":
+            continue
+        current = stages[stage]
+        if "inputs_hash" in entry:
+            if (entry["inputs_hash"] != current["inputs_hash"]
+                    or entry.get("config_hash") != current["config_hash"]):
+                continue
+        elif current.get("decision") != "escalate" or entry["reason"] != current.get("decision_reason"):
+            # Older queue rows have no hashes. Match the active manifest's escalation.
+            continue
+        pending.append(entry)
+    return pending
+
+
 def push_queue(work_root: Path, entry: dict) -> None:
     """Append one escalation. Entries are keyed on (sample, stage, reason) so a re-run
     updates the existing line instead of duplicating it."""
@@ -142,7 +161,8 @@ def push_queue(work_root: Path, entry: dict) -> None:
     if entry.get("regions"):
         # region-level lines are identified by their reason text (region ranks)
         key = (entry["sample"], entry["stage"], entry["reason"])
-        q = [e for e in q if (e["sample"], e["stage"], e["reason"]) != key]
+        q = [e for e in q if (e["sample"], e["stage"], e["reason"]) != key
+             or e.get("status", "open") != "open"]
     elif entry.get("spectrum"):
         # spectrum-level lines (autospectra, spectra_qc): one open line per spectrum.
         # Found on the 2026-09-05 real-data run: without this branch every spectrum
@@ -154,7 +174,7 @@ def push_queue(work_root: Path, entry: dict) -> None:
         # stage-level lines (audit, segment, stitch, stats ...): one open line per
         # (sample, stage); a re-run replaces it, a passed re-run clears it (clear_queue)
         q = [e for e in q if not (e["sample"] == entry["sample"] and e["stage"] == entry["stage"]
-                                  and not e.get("regions") and e.get("status") == "open")]
+                                  and not e.get("regions") and e.get("status", "open") == "open")]
     q.append({**entry, "status": entry.get("status", "open"),
               "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
     p.write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -167,7 +187,7 @@ def clear_queue(work_root: Path, sample: str, stage: str) -> None:
         return
     q = load_json(p, [])
     q2 = [e for e in q if not (e["sample"] == sample and e["stage"] == stage
-                               and not e.get("regions") and e.get("status") == "open")]
+                               and not e.get("regions") and e.get("status", "open") == "open")]
     if len(q2) != len(q):
         p.write_text(json.dumps(q2, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -178,7 +198,7 @@ def resolve_entry(work_root: Path, sample: str, stage: str, by: str, note: str) 
     q = load_json(p, [])
     n = 0
     for e in q:
-        if e["sample"] == sample and e["stage"] == stage and e.get("status") == "open":
+        if e["sample"] == sample and e["stage"] == stage and e.get("status", "open") == "open":
             e.update(status="resolved", resolved_by=by, resolve_note=note,
                      resolved_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
             n += 1
@@ -231,8 +251,9 @@ def _cmd_decide(work: Path, a):
     qp = queue_path(work)
     q = load_json(qp, [])
     for e in q:
-        if e["sample"] == a.sample and any(
-                same_region(r["region_key"], entry["region_key"]) for r in e.get("regions", [])):
+        regions = e.get("regions", [])
+        if (e["sample"] == a.sample and e.get("status", "open") == "open" and regions
+                and all(any(same_region(r["region_key"], h["region_key"]) for h in hv) for r in regions)):
             e["status"] = "decided"
     qp.write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"记录：{a.sample} #{a.rank} -> {'剔除' if a.exclude else '保留'} "

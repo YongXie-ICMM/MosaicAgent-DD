@@ -80,23 +80,24 @@ def test_chinese_pipeline_and_review_roundtrip_with_cp1252_default(cfg, monkeypa
 
 
 @pytest.mark.parametrize("changed_input", ["mosaic", "valid_mask"])
-def test_audit_does_not_reuse_changed_image_or_valid_support_with_same_mask(tmp_path, changed_input):
+@pytest.mark.parametrize("stage", ["audit", "regions"])
+def test_changed_image_or_valid_support_invalidates_stage_with_same_mask(tmp_path, changed_input, stage):
     ctx = {"work": tmp_path, "sample": "S", "no_ai": True}
     state = {key: str(tmp_path / f"{key}.dat") for key in ("mosaic", "mask", "valid_mask")}
     for key, path in state.items():
         Path(path).write_bytes(f"synthetic {key} v1".encode())
-    output = tmp_path / "S_audit.json"
+    output = tmp_path / f"S_{stage}.json"
     output.write_text('{"synthetic":true}', encoding="utf-8")
     orchestrator = O.Orchestrator({"work_root": str(tmp_path)})
-    spec = _spec(orchestrator, "audit")
+    spec = _spec(orchestrator, stage)
     key = spec["key"](ctx, state)
-    manifest = _record(orchestrator, tmp_path, "audit", key, Result(ok=True), [output])
-    assert orchestrator._cached(manifest, "audit", spec["key"](ctx, state)) is not None
+    manifest = _record(orchestrator, tmp_path, stage, key, Result(ok=True), [output])
+    assert orchestrator._cached(manifest, stage, spec["key"](ctx, state)) is not None
 
     mask_before = Path(state["mask"]).read_bytes()
     Path(state[changed_input]).write_bytes(f"synthetic {changed_input} v2".encode())
     assert Path(state["mask"]).read_bytes() == mask_before
-    assert orchestrator._cached(manifest, "audit", spec["key"](ctx, state)) is None
+    assert orchestrator._cached(manifest, stage, spec["key"](ctx, state)) is None
 
 
 def test_stats_valid_support_change_invalidates_cache_and_changes_real_denominator(tmp_path, monkeypatch,
