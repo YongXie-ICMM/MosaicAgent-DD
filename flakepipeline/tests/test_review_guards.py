@@ -82,3 +82,47 @@ def test_stage_level_queue_lines(tmp_path):
     RV.clear_queue(w, "S1", "audit")                              # passed re-run
     q = json.loads(RV.queue_path(w).read_text())
     assert [e["stage"] for e in q if e["status"] == "open"] == ["regions"]
+
+
+def test_pending_reviews_match_current_inputs_and_legacy_reasons():
+    audit = {"sample": "S1", "stage": "audit", "reason": "check image",
+             "inputs_hash": "active-image", "config_hash": "active-config", "status": "open"}
+    # Older queues have neither hashes nor an explicit status.
+    legacy = {"sample": "S1", "stage": "regions", "reason": "split vote"}
+    rows = [audit, legacy, {**audit, "inputs_hash": "previous-image"},
+            {**audit, "config_hash": "previous-config"}, {**audit, "sample": "S2"},
+            {**audit, "stage": "autospectra"}, {**audit, "status": "resolved"},
+            {**legacy, "reason": "previous split"}, {**legacy, "status": "decided"}]
+    stages = {"audit": {"inputs_hash": "active-image", "config_hash": "active-config",
+                        "decision": "escalate", "decision_reason": "check image"},
+              "regions": {"inputs_hash": "active-mask", "config_hash": "active-config",
+                          "decision": "escalate", "decision_reason": "split vote"}}
+    assert RV.pending_reviews(rows, "S1", stages) == [audit, legacy]
+    stages["regions"]["decision"] = "accept"
+    assert RV.pending_reviews(rows, "S1", stages) == [audit]
+
+
+def test_partial_region_decision_and_decided_history_on_reopening(tmp_path, monkeypatch):
+    verdicts = [{"rank": 1, "area_px": 100, "bbox": [0, 10, 0, 10]},
+                {"rank": 2, "area_px": 100, "bbox": [80, 90, 80, 90]}]
+    exclusions = tmp_path / "S1" / "03_regions" / "S1_exclusions.json"
+    exclusions.parent.mkdir(parents=True)
+    exclusions.write_text(json.dumps({"verdicts": verdicts}), encoding="utf-8")
+    regions = [{"rank": v["rank"], "region_key": RV.region_key("S1", v)} for v in verdicts]
+    row = {"sample": "S1", "stage": "regions", "reason": "split vote", "regions": regions,
+           "inputs_hash": "first-image", "config_hash": "config"}
+    RV.push_queue(tmp_path, row)
+
+    for rank, expected_status in [(1, "open"), (2, "decided")]:
+        monkeypatch.setattr(sys, "argv", ["review.py", "--work", str(tmp_path), "decide",
+                                          "--sample", "S1", "--rank", str(rank), "--keep",
+                                          "--by", "reviewer", "--note", "reviewed both previews"])
+        RV.main()
+        queue = RV.load_json(RV.queue_path(tmp_path), [])
+        assert [entry["status"] for entry in queue] == [expected_status]
+
+    decided = queue[0]
+    RV.push_queue(tmp_path, {**row, "inputs_hash": "second-image"})
+    history, reopened = RV.load_json(RV.queue_path(tmp_path), [])
+    assert history == decided
+    assert (reopened["status"], reopened["inputs_hash"]) == ("open", "second-image")

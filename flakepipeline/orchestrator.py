@@ -156,7 +156,8 @@ class Orchestrator:
                     "no_ai": bool(ctx.get("no_ai"))}
 
         def k_regions(ctx, st):
-            return {"mask": _hash_file(st["mask"]), "min_pct": ctx.get("min_region_pct"),
+            return {"mask": _hash_file(st["mask"]), "mosaic": _hash_file(st["mosaic"]),
+                    "valid_mask": _hash_file(st["valid_mask"]), "min_pct": ctx.get("min_region_pct"),
                     "max": ctx.get("max_regions"), "votes": ctx.get("votes"),
                     "no_ai": bool(ctx.get("no_ai")), "replay": bool(ctx.get("replay")),
                     "human": _hash_obj(self.human) if self.human else ""}
@@ -434,16 +435,17 @@ class Orchestrator:
                         {"rank": v.get("rank"), "category": v.get("category"),
                          "_tally": v.get("_tally"), "region_key": RV.region_key(name, v)}
                         for v in r.get("verdicts", [])
-                        if v.get("category") == "uncertain"
-                        or v.get("needs_human") or v.get("_split")
-                        or (v.get("_tally") and max(v["_tally"].values()) < stages.votes_setting(ctx)[1])
-                        or not v.get("_ai")]
+                        if not v.get("decided_by") and (
+                            v.get("category") == "uncertain" or v.get("needs_human") or v.get("_split")
+                            or (v.get("_tally") and max(v["_tally"].values()) < stages.votes_setting(ctx)[1])
+                            or not v.get("_ai"))]
                 elif stage == "audit":
                     e["alarms"] = [{k: a.get(k) for k in ("rank", "bbox", "area_px",
                                                           "dominant_class", "pct_of_class")}
                                    for a in r.get("alarms", [])]
                 escalations.append(e)
-                RV.push_queue(self.work_root, e)
+                RV.push_queue(self.work_root, {**e, "inputs_hash": man["stages"][stage]["inputs_hash"],
+                                               "config_hash": self.cfg_hash})
                 print(f"      [ESCALATE] {stage}: {dec.reason}")
             elif res.evidence:
                 print(f"      自检: {res.evidence}")
@@ -518,26 +520,36 @@ class Orchestrator:
         for s in samples:
             print(f"--- {s['name']} ---")
             results.append(self.run_sample(s))
+        # A reviewer can decide an earlier sample while later samples are running.
+        # Use one queue snapshot at report time for the sample and batch counts.
+        queue = RV.load_json(RV.queue_path(self.work_root), [])
+        manifests = {}
+        for result in results:
+            name = result["sample"]
+            manifest = RV.load_json(Path(result["manifest"]), {})
+            manifests[name] = manifest
+            active_stages = {stage: record for stage, record in manifest.get("stages", {}).items()
+                             if stage in result["actions"]}
+            result["pending_reviews"] = RV.pending_reviews(queue, name, active_stages)
         report = {"config_hash": self.cfg_hash, "policy": self.policy,
                   "config": {k: str(v) for k, v in self.cfg.items() if k != "samples"},
                   "plan": plan,
                   "samples": results, "seconds": round(time.time() - t0, 1),
-                  "consistency": self._consistency(results, plan)}
+                  "consistency": self._consistency(results, manifests, plan)}
         (self.work_root / "report.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report
 
-    def _consistency(self, results, plan=None):
-        """Cross-sample consistency assertions. Reads every sample's manifest.json."""
+    def _consistency(self, results, manifests, plan=None):
+        """Cross-sample consistency assertions using the report's stage manifests."""
         checks = []
 
         # ---- 1. every sample actually used the same configuration ----
         seen, missing = {}, []
         for r in results:
-            mp = Path(r.get("manifest", ""))
-            if not mp.exists():
+            man = manifests[r["sample"]]
+            if not man:
                 missing.append(r["sample"]); continue
-            man = json.loads(mp.read_text(encoding="utf-8"))
             hashes = {st: rec.get("config_hash") for st, rec in man.get("stages", {}).items()}
             seen[r["sample"]] = hashes
         all_h = {h for hs in seen.values() for h in hs.values() if h}
@@ -586,11 +598,12 @@ class Orchestrator:
                        + (f"**以下超过阈值，写论文时必须交代: {hot}**" if hot else ""))})
 
         # ---- 5. any escalation still unhandled ----
-        esc = [e for r in results for e in r.get("escalations", [])]
-        checks.append({"check": "No escalations are awaiting a human", "pass": not esc,
-                       "detail": (f"{len(esc)} 条需要人看，已写入 REVIEW/review_queue.json: "
+        pending = [e for r in results for e in r["pending_reviews"]]
+        checks.append({"check": "No escalations are awaiting a human", "pass": not pending,
+                       "pending_count": len(pending),
+                       "detail": (f"{len(pending)} 条需要人看，已写入 REVIEW/review_queue.json: "
                                   + "; ".join(f"[{e['sample']}/{e['stage']}] {e['reason']}"
-                                              for e in esc)) if esc else "无"})
+                                              for e in pending)) if pending else "无"})
 
         # ---- 6. did the run follow its own plan ----
         if plan:
