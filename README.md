@@ -1,44 +1,73 @@
 # MosaicAgent-DD
 
-A reproducible software workflow for large-area optical microscopy of CVD-grown MoS₂: acquisition records, image stitching, semantic layer-number mapping, spatial layer statistics and optical spectroscopy records. This repository accompanies the Digital Discovery study.
+MosaicAgent-DD estimates the spatial distribution of monolayer, bilayer and thicker molybdenum disulfide (MoS₂) from optical microscopy of samples grown by chemical vapour deposition (CVD). It stitches overlapping fields into a mosaic, applies a fixed U-Net and counts pixels inside a reviewed measurement area. Each reported layer fraction can be traced to the source scan, model, included pixels and reviewer exclusions.
 
-**[English documentation](#documentation) · [中文说明](README_zh.md)**
+The software accompanies the *Digital Discovery* study of CVD-grown MoS₂. Its post-acquisition Orchestrator runs a fixed sequence of tools, checks their outputs, supports bounded retries and sends unresolved cases to a human. Optional vision-language assistance is available for image review. Acquisition, registration, inference and counting each have an inspectable numerical or instrument record. [Architecture](docs/ARCHITECTURE.md) · [中文说明](README_zh.md)
 
-## Workflow
+**[Try the software](#quickstart)** · **[Process a scan](#process-an-experimental-scan)** · **[Read a result](#interpret-a-layer-map)** · **[Code and data citation](#cite-the-software-and-data)**
 
-**Acquire → verify images and logs → match colour → stitch → inspect → identify layers → map spatial composition**
-
-| Stage | Implementation and output |
-|---|---|
-| Acquisition | Windows camera/XY-stage scanner with timestamped images, session metadata, device communication and per-operation records. The current communication-logging scanner is maintained in [AmScope-Camera](https://github.com/YongXie-ICMM/AmScope-Camera). |
-| Intake | Validate one scan's image inventory, recorded hashes and acquisition events; retain correspondence to the source session. |
-| Colour matching and stitching | Register neighbouring overlaps, estimate illumination and per-tile RGB gains, and apply correction during rendering. Colour matching is enabled by default. Verified recorded grids preserve acquisition row/column identities when texture is ambiguous. |
-| Result inspection | Check actual contributing images, missing positions, registration and colour records. A successful process exit alone does not validate a mosaic. |
-| Layer inference | Apply the explicitly selected 0409 U-Net checkpoint with recorded capture geometry. Retain native semantic masks, valid support, exclusions and review decisions. |
-| Spatial statistics | Export per-layer heatmaps, combined layer-composition maps and numerical tables from existing masks. No additional model call is needed. |
-| Provenance | Store source-bound job plans, progress, errors, artifact hashes and review history under one project `Memory/` directory. |
-
-The guided browser interface opens this seven-stage workflow. The earlier review tools remain available at `/review/`. See the [English workflow guide](docs/DD_WORKFLOW.md).
-
-The interface defaults to **English**, with a persistent **中文** option. After layer inference, step 07 can propose exclusion boxes on matching optical/segmentation previews. Users edit and explicitly confirm the boxes before final spatial statistics; optional Kimi ROI advice never approves or applies them. The resulting Figure 4 aligns the optical image, segmented map and local composition. [Box review and reproducibility](docs/SPATIAL_REGION_REVIEW.md).
-
-## Reproduce the analysis
-
-### Environment
-
-The unified student trial supports the instrument's existing **64-bit Python 3.9.18**. It does not require upgrading the instrument's Python. The pinned profile retains NumPy 1.26.2 and OpenCV 4.10.0.84 from the successful instrument runs; dependencies are installed in a local environment.
-
-```sh
-python -m venv .venv
-# Activate this environment for your platform, then:
-python -m pip install -r requirements-student-py39.txt
+```mermaid
+flowchart LR
+    scan["Optical tiles and scan log"] --> mosaic["Verified mosaic"]
+    mosaic --> mask["U-Net layer mask"]
+    mosaic --> review["Human review of exclusions"]
+    mask --> review
+    mask --> counts["Retained pixel counts"]
+    review --> counts
+    counts --> maps["Spatial maps and tables"]
 ```
 
-Windows users receiving the complete trial kit can run `01_install.bat`, followed by `03_open_workbench.bat`. The macOS equivalents end in `.command`; acquisition itself requires Windows x64 and the appropriate vendor drivers. Camera and stage SDKs are not installed by pip. A Git clone contains source, not the checkpoint or a configured instrument.
+## Quickstart
 
-### Example layer inference
+### Check registration on a clean clone
 
-The complete example distribution supplies two original 1920×1080 images, `data/demo/assets.json` and the unchanged `weights/model_0409_all.pth`. With these trusted assets placed at their manifest-defined paths:
+With Git and Python 3.12, run the following from a terminal on macOS or Linux. Only the base dependencies are needed. The check generates its own microscope-like images, including a simulated serpentine scan with retakes. Once dependencies are installed, it runs offline without images, model weights, a microscope or an API key.
+
+```sh
+git clone https://github.com/YongXie-ICMM/MosaicAgent-DD.git
+cd MosaicAgent-DD
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python register.py
+```
+
+On Windows PowerShell, create the environment with `py -3.12 -m venv .venv` and activate it with `.\.venv\Scripts\Activate.ps1`. Look for the final line **`总计: 全部通过`** (“all checks passed”). The checks cover recovered tile shifts, rejection of implausibly thin overlaps, global positions on a known grid, and detection of disconnected tile groups. [Registration self-test](register.py)
+
+### Produce a layer map with a known answer
+
+This example exercises the same spatial exporter used for experimental masks. Run it once from the clone with the environment above active. The eight synthetic pixels include three monolayer, two bilayer, one thicker-layer and two substrate pixels. The entire toy canvas is valid scan area.
+
+```sh
+python -m pip install "matplotlib>=3.7,<4"
+mkdir synthetic-example
+python -c "import numpy as np; np.save('synthetic-example/mask.npy', np.array([[0, 2, 2, 1], [3, 0, 2, 1]], dtype=np.uint8))"
+python tools/layer_spatial_maps.py --mask synthetic-example/mask.npy --sample toy --heatmap-grid 2 1 --combined-grid 2 1 --output synthetic-example/maps
+```
+
+Open `synthetic-example/maps/spatial_manifest.json` and inspect `global`. Bilayer **composition** is 2/6, or 33.3% of the crystal area. Bilayer **coverage** is 2/8, or 25% of the retained scan area. The adjacent CSV tables and figures come from the same counts. Choose a fresh output directory for each export. [Spatial exporter](tools/layer_spatial_maps.py)
+
+## Process an experimental scan
+
+| Step | Input and operation | What to inspect |
+| --- | --- | --- |
+| 1. Acquire and verify | The Windows camera and XY stage save overlapping fields with position IDs. Intake binds the original files and acquisition events to one session. | Check image inventory, hashes, retakes and missing positions. The operator handles refocusing. |
+| 2. Register and stitch | Register overlapping neighbours, estimate illumination and per-tile colour gains, then blend the mosaic. Verified scan grids preserve row and column identities on low-texture images. | Check the IDs of tiles that actually contributed pixels, the valid support, and any gaps or seams. |
+| 3. Infer and review | The fixed 0409 U-Net predicts native layer classes. The guided workbench proposes exclusion boxes and displays the optical image beside its segmentation. | Check capture geometry, edit or accept boxes and explicitly confirm the reviewed area before exporting final guided statistics. |
+| 4. Summarize | Count retained pixels per class across the whole map and in each spatial cell. Export PNG/SVG figures, CSV tables, NPZ arrays and a JSON manifest. | Trace each figure to its mask, support and exclusions. Compare full-area and retained-area results when an exclusion affects the interpretation. |
+
+The English/Chinese browser workbench walks an operator through seven steps and keeps earlier review tools at `/review/`. Its project `Memory/` directory binds the scan inventory to prepared jobs, execution logs, output hashes and review records. Start with the job's manifest when investigating a missing tile or a disputed measurement. The five-stage post-acquisition controller runs stitching, segmentation, auditing, region review and statistics. A failed check can invoke a named repair or raise an item for human review. [Workbench and Memory](docs/DD_WORKFLOW.md) · [Controller](flakepipeline/orchestrator.py) · [Spatial review](docs/SPATIAL_REGION_REVIEW.md)
+
+### Environment and assets
+
+| Use | Requirements |
+| --- | --- |
+| Stitching or the registration self-test | Base Python packages in [requirements.txt](requirements.txt). |
+| Full analysis on a separate workstation | Install [requirements-analysis.txt](requirements-analysis.txt) for layer inference, plotting and spectrum processing. The [development profile](requirements-dev.txt) additionally installs the test tools. |
+| Current source on the laboratory instrument | Install the [pinned 64-bit Python 3.9.18 profile](requirements-student-py39.txt). It retains NumPy 1.26.2 and OpenCV 4.10.0.84 from instrument runs. Windows x64 acquisition also needs the appropriate vendor drivers and SDKs. |
+| Two-image layer demo | From the [v0.1.0 release](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/tag/v0.1.0), download `MosaicAgent-DD-student-complete.zip`. Copy `data/demo/assets.json`, `data/demo/source_images.zip` (keep zipped) and `weights/model_0409_all.pth` into the same paths under the cloned repository. The Git clone supplies the source and configuration examples. |
+
+If you run the v0.1.0 kit directly, follow that release's Python 3.10+ instructions and numbered launchers. To run the demo from the current source checkout, install the analysis dependencies and copy the three release assets listed above. From the repository root, verify the inputs, run inference and open the workbench.
 
 ```sh
 python tools/student_demo.py check
@@ -46,69 +75,57 @@ python tools/student_demo.py run
 python tools/student_demo.py workbench
 ```
 
-The two images are an executable inference demonstration, not an independent accuracy test or a verified adjacent pair for stitching. Each run creates new outputs. Read [data, checkpoint and reproducibility requirements](docs/DATA_AND_REPRODUCIBILITY.md) before interpreting predictions.
+A successful check reports `Verified 2 images and supplied checkpoint; no model loaded.` The demo contains two original 1920 × 1080 fields on 260 nm SiO₂/Si and writes fresh inference outputs. Its manifest records the same-field-of-view confirmation for these two examples. The two fields demonstrate execution. Their adjacency and independent ground-truth layer labels have not been established. [Data and checkpoints](docs/DATA_AND_REPRODUCIBILITY.md) · [Capture scale and model window](docs/RESOLUTION_AND_INFERENCE.md)
 
-### Stitch an experimental scan
+### Command-line analysis
 
-Prepare a profile using the actual image dimensions and verified acquisition geometry. Preserve the generated `profile.json`, `preflight.json` and `layer_input_contract.json`. For an offline run:
+**Stitch an acquired scan.** Prepare a profile for the actual image dimensions and verified acquisition geometry. Save `profile.json`, `preflight.json` and `layer_input_contract.json` with the run. Use the offline path with a new work directory.
 
 ```sh
 python run_stitch.py --data /path/to/scan --work /path/to/new_work \
   --out /path/to/new_mosaic.png --stitch-profile /path/to/profile.json --no-ai
 ```
 
-The guided interface prepares the same fixed command and records its execution. Default colour correction uses neighbouring registered overlaps; insufficient or inconsistent evidence stops the run. The explicit historical control is `--colour-correction off` with a separate work directory. Original images are never overwritten. [Correction evidence](docs/diagnostics/20261031_default_colour_correction.md).
+Colour correction is enabled by default. Insufficient or inconsistent overlap evidence stops the run. The historical control uses `--colour-correction off` and a separate work directory. Source images remain intact. [Colour-correction evidence](docs/diagnostics/20261031_default_colour_correction.md)
 
-For layer analysis of a new mosaic, first confirm the sample/checkpoint domain and inference geometry. The supplied teacher template is deliberately unconfirmed; its booleans and example paths are not calibration. Keep the model's 512-pixel window distinct from the native capture/mosaic scale. [Resolution and inference](docs/RESOLUTION_AND_INFERENCE.md).
+**Analyze a mosaic.** Start with the [offline layer configuration](configs/layer_analysis.example.json). In a local copy, set the sample, mosaic, work directory and trusted checkpoint. Confirm substrate, optical scale and inference geometry before processing a new acquisition. The [guided teacher template](configs/layer_workflow.teacher_template.json) needs these confirmations for the actual sample. The U-Net's 512-pixel input window and the native mosaic scale serve different purposes. [Layer analysis CLI](flakepipeline/README.md) · [Resolution and inference](docs/RESOLUTION_AND_INFERENCE.md)
 
-### Export spatial layer maps
+**Export an existing native mask.** Provide the aligned valid-support mask and any reviewed exclusions. Add `--mosaic` for a Figure 4 view that aligns the optical mosaic, segmentation and local composition.
 
 ```sh
 python tools/layer_spatial_maps.py --mask /path/to/native_mask.npy \
-  --valid-mask /path/to/valid_support.npy --sample sample_id \
-  --output /path/to/new_spatial_output
+  --valid-mask /path/to/valid_support.npy --exclusions /path/to/exclusions.npy \
+  --sample sample_id --output /path/to/new_spatial_output
 ```
 
-Supply `--exclusions` when exclusions apply. Outputs include PNG, editable SVG, CSV, NPZ and a source-bound JSON manifest. Counts are computed from native labels and retained support; they are not inferred from a coloured preview.
+**Inspect optical spectra.** The separate spectral workflow reads measured files, checks the energy axis and reference information, and supports A/B exciton fitting and substrate-matched calibration. Retain the microscope point image, acquisition footprint, raw sample/reference signals and settings. Stacking assignments need independent supporting evidence. [Spectroscopy guide and numeric QC example](docs/SPECTRA.md)
 
-| Native label | Meaning | Display RGB |
-|---|---|---|
-| 0 | Substrate/background | 0,0,0 |
-| 1 | Bilayer, 2L | 128,0,0 |
-| 2 | Monolayer, 1L | 0,128,0 |
-| 3 | Thicker-layer class, TL | 128,128,0 |
+## Interpret a layer map
 
-**Layer composition** divides each layer's retained area by retained classified MoS₂ area, 1L+2L+TL. **Coverage** divides by retained scan area, including substrate. Whole-map and row/column fractions are calculated from summed pixel counts, rather than means of cell percentages. TL is a combined thicker-layer class, not an isolated trilayer measurement. Physical coordinates require an independent spatial calibration.
+| Native integer ID | Class | Exact label PNG colour (RGB) |
+| --- | --- | --- |
+| 0 | Substrate/background | 0, 0, 0 |
+| 1 | Bilayer (2L) | 128, 0, 0 |
+| 2 | Monolayer (1L) | 0, 128, 0 |
+| 3 | Thicker layers (TL), pooled | 128, 128, 0 |
 
-## Optional AI supervision
+Use the full-resolution mask, valid scan support and approved exclusions. Retained scan area includes substrate. Retained crystal area includes only 1L + 2L + TL. A cell with zero retained crystal area has undefined composition. Whole-map, row and column fractions use summed pixel counts. A millimetre scale requires an independent spatial calibration. [Counting definitions and file formats](docs/SPATIAL_LAYER_MAPS_zh.md)
 
-Kimi supervision is available in selected stitching, image-review and spectroscopy tools. Deterministic extraction, registration, layer inference and spatial counting remain explicit Python operations; a model response is not an experimental measurement. The offline commands above do not require an API key. When external supervision is enabled, selected images or plots may be transmitted to the configured provider; record the invocation and decision scope. Credentials and local environment files are not included in Git or the key-free trial kit.
+To assess sensitivity to a suspected deposit, export the same native mask and valid support twice, first with all supported regions retained and then with the reviewed exclusion. Compare the class counts, retained denominators and before/after fractions. Report the basis for the exclusion alongside the effect on composition. The software records the operator's decision and its quantitative consequences. Physical identification of a deposit requires separate evidence. [Region-review procedure](docs/SPATIAL_REGION_REVIEW.md)
 
-## Validation and scientific scope
+## What the validation establishes
 
-- **Software:**1,092 offline tests passed and 1 skipped under actual Python 3.9.18 using the pinned dependencies, including spatial-box review, optional Kimi advice and three-panel export checks. Python compilation and JavaScript syntax checks passed. CI checks both Python 3.9 and 3.12; its live result is visible in [GitHub Actions](https://github.com/YongXie-ICMM/MosaicAgent-DD/actions).
-- **Packaging:** the 270-file local trial kit passed nested source, scanner and checkpoint hash checks. A synthetic background spatial job run from the extracted kit produced 16 verified artifacts and a Memory completion event. Synthetic checks are identified as such.
-- **Stitching:** recorded-grid protection corrected 16 misplaced rows in the 864-image low-texture case while retaining every image. The 1000-image colour/render replay retained all image IDs and reduced overlap log-RMS from 1.480% to 0.770%. These are geometry/consistency checks, not segmentation accuracy estimates.
-- **Acquisition:** the C1 scanner completed 9-image and 1000-image scans on 31 October 2026 in one application process. No motion fault occurred. This validates those normal runs and logging, not elimination of the earlier SDK `command_movr`−1 fault.
-- **Remaining acceptance:** a complete run through the new integrated interface on the Windows instrument remains pending. Independent reference labels are still needed for classification accuracy on the new capture conditions. Colour matching does not repair a physically incorrect scan or establish checkpoint applicability.
+- **Geometry.** Preserving the acquired row/column identities corrected 16 misplaced rows in an 864-image low-texture scan. All 864 images contributed to the final mosaic. [Recorded-grid case](docs/diagnostics/20261009_recorded_grid_stitching.md)
+- **Colour consistency.** A 1,000-image replay retained all tile IDs and reduced the fitted overlap log-RMS from 1.480% to 0.770%. This measures overlap consistency in that replay. Layer accuracy under new capture conditions still requires independently labelled examples. [Colour-correction case](docs/diagnostics/20261031_default_colour_correction.md)
+- **Acquisition and packaging.** On 31 October 2026 the C1 scanner completed 9- and 1,000-image scans in one application session. The historical 270-file trial kit passed scanner and checkpoint hash checks, and an extracted synthetic spatial job produced 16 verified artifacts. These checks cover normal acquisition, logging and package execution. End-to-end acceptance on the Windows instrument and the cause of the earlier stage SDK fault are tracked separately. [Workflow validation](docs/DD_WORKFLOW.md) · [Incident history](docs/INCIDENT_HISTORY.md) · [Trial kit](docs/DD_TRIAL_KIT_zh.md)
+- **Software.** Offline CI exercises Python 3.9.18 and 3.12. Open the workflow run for the commit you intend to use to see its exact checks and results. [GitHub Actions](https://github.com/YongXie-ICMM/MosaicAgent-DD/actions/workflows/offline-tests.yml)
 
-Historical data, checkpoints, scanner snapshots and decision records remain preserved. The DD repository's 16 hash-locked scanner runtime files are unchanged; the complete kit binds the separately verified C1 scanner. Neither acquisition nor blur retries imply automatic Z-axis focusing. The [English incident history](docs/INCIDENT_HISTORY.md) distinguishes confirmed application fixes, recovered read errors, diagnostic improvements and unresolved causes.
+## Optional model supervision
 
-## Code, data and release provenance
+Kimi can assist selected layout, tile, seam, region or spectral reviews. Enabling the external provider can transmit selected images or plots. In the guided spatial review, only paired optical/segmentation ROI previews are submitted, and the reviewer decides which boxes to confirm. Numerical registration, U-Net inference, coverage and pixel counts remain traceable to their local inputs. Use `--no-ai` when running supported command-line tools offline. Guided layer-analysis jobs disable external calls and automatic repair. [Model roles](docs/ARCHITECTURE.md) · [ROI review and decision records](docs/SPATIAL_REGION_REVIEW.md)
 
-This source branch includes the current guided workflow. GitHub's latest release asset may have been built from an older commit; inspect its manifest rather than assuming it matches the current branch. The new local key-free student kit has not been published as a GitHub release. Source downloads do not include the original checkpoint, full manuscript datasets or a vendor-driver installation.
+## Cite the software and data
 
-[Data and reproducibility](docs/DATA_AND_REPRODUCIBILITY.md) describes the required assets and boundaries. [Source provenance](docs/PROVENANCE.md) records portability changes and third-party components. This repository does not assign a new license to third-party SDKs or claim that all manuscript data are present. No archival DOI is invented here; the manuscript's data-availability statement identifies the corresponding data archive.
+Cite **MosaicAgent-DD** with the repository URL and the full commit used for the run. For example, the fixed reviewer source snapshot is [MosaicAgent-DD at `018c5a7`](https://github.com/YongXie-ICMM/MosaicAgent-DD/tree/018c5a7a5b4f8415891f1d3f9ad1c208b1e9d4a5). Use `git rev-parse HEAD` to record your own revision. If you used a packaged distribution, include its version and manifest identifier. The public [v0.1.0 software preview](https://github.com/YongXie-ICMM/MosaicAgent-DD/releases/tag/v0.1.0) predates the reviewer snapshot. The later local key-free trial kit is documented separately. Cite the [companion dataset for Figures 3–7](https://doi.org/10.5281/zenodo.20582052) separately when those research data are used. Its metadata are public and its files have restricted access.
 
-## Documentation
-
-- [Guided workflow and Memory — English](docs/DD_WORKFLOW.md)
-- [Incident-to-code history — English](docs/INCIDENT_HISTORY.md)
-- [Data, checkpoints and reproducibility — English](docs/DATA_AND_REPRODUCIBILITY.md)
-- [Capture scale and inference — English](docs/RESOLUTION_AND_INFERENCE.md)
-- [Architecture — English](docs/ARCHITECTURE.md)
-- [Spectroscopy records — English](docs/SPECTRA.md)
-- [Source and dependency provenance — English](docs/PROVENANCE.md)
-- [Student instructions — Chinese](README_zh.md)
-- [Spatial-map commands and counting definitions — Chinese](docs/SPATIAL_LAYER_MAPS_zh.md)
-- [Developer rules](AGENTS.md)
+The [provenance record](docs/PROVENANCE.md) identifies upstream code, hardware dependencies and third-party terms. The 16 bundled scanner runtime files are hash-locked to their recorded revision. The separately maintained [AmScope-Camera](https://github.com/YongXie-ICMM/AmScope-Camera) repository carries the communication-logging scanner. The repository gives no additional redistribution rights for vendor SDKs. [Contributor instructions](AGENTS.md)
